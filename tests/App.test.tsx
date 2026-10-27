@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { webcrypto } from "node:crypto";
 import type { Ride } from "../src/types";
-const data = vi.hoisted(() => ({ rides: [] as Ride[] }));
+const data = vi.hoisted(() => ({ rides: [] as Ride[], deleteError: "" }));
 vi.mock("../src/storage", () => ({
   desktop: true,
   loadRides: async () => [...data.rides],
@@ -16,12 +16,21 @@ vi.mock("../src/storage", () => ({
     data.rides = data.rides.map((r) => (r.id === id ? { ...r, name } : r));
   },
   deleteRide: async (id: string) => {
+    if (data.deleteError) throw new Error(data.deleteError);
     data.rides = data.rides.filter((r) => r.id !== id);
   },
 }));
 vi.mock("../src/Map", () => ({
-  default: ({ rides }: { rides: Ride[] }) => (
-    <div data-testid="map">{rides.map((r) => r.name).join(",")}</div>
+  default: ({
+    rides,
+    selected,
+  }: {
+    rides: Ride[];
+    selected: string | null;
+  }) => (
+    <div data-testid="map" data-selected={selected ?? ""}>
+      {rides.map((r) => r.name).join(",")}
+    </div>
   ),
 }));
 const windowApi = vi.hoisted(() => ({
@@ -46,10 +55,71 @@ beforeEach(async () => {
   vi.stubGlobal("crypto", webcrypto);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   data.rides = [];
+  data.deleteError = "";
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
   await act(async () => root.render(<App />));
+});
+
+it("deletes from recent/history lists with cancellation, failure recovery and selection preservation", async () => {
+  const fixture: Ride = {
+    id: "one",
+    name: "第一条",
+    date: null,
+    distance: 1,
+    duration: null,
+    segments: [],
+    filename: "one.gpx",
+    importedAt: "",
+  };
+  data.rides = [fixture, { ...fixture, id: "two", name: "第二条" }];
+  await act(async () => root.render(null));
+  await act(async () => root.render(<App />));
+  const byLabel = async (label: string) =>
+    act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
+        .click(),
+    );
+  await byLabel("删除 第一条");
+  expect(container.textContent).toContain("删除“第一条”");
+  await click("取消");
+  expect(data.rides).toHaveLength(2);
+  await act(async () =>
+    Array.from(container.querySelectorAll<HTMLButtonElement>(".ride-main"))
+      .find((b) => b.textContent?.includes("第二条"))!
+      .click(),
+  );
+  await click("历史记录");
+  await byLabel("删除 第一条");
+  data.deleteError = "数据库写入失败";
+  await click("确认删除");
+  expect(data.rides).toHaveLength(2);
+  expect(container.textContent).toContain("删除失败");
+  expect(container.querySelectorAll(".ride-row")).toHaveLength(2);
+  data.deleteError = "";
+  await click("确认删除");
+  expect(data.rides.map((r) => r.id)).toEqual(["two"]);
+  expect(container.querySelectorAll(".ride-row")).toHaveLength(1);
+  await click("骑行地图");
+  expect(
+    container.querySelector("[data-testid=map]")?.getAttribute("data-selected"),
+  ).toBe("two");
+  expect(container.querySelector("[data-testid=map]")?.textContent).toBe(
+    "第二条",
+  );
+  await click("历史记录");
+  await byLabel("删除 第二条");
+  await click("确认删除");
+  await click("骑行地图");
+  expect(data.rides).toHaveLength(0);
+  expect(
+    container.querySelector("[data-testid=map]")?.getAttribute("data-selected"),
+  ).toBe("");
+  expect(container.querySelectorAll(".stat-card strong")[1].textContent).toBe(
+    "0次",
+  );
 });
 afterEach(async () => {
   await act(async () => root.unmount());

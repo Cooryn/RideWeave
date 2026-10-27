@@ -22,7 +22,7 @@ RideWeave是一款以地图为中心的个人骑行数据管理桌面应用。�
 
 ## 技术基础与架构
 
-项目以 Tauri、React、TypeScript、Leaflet 和 SQLite 为技术基础，使用 Vite 支持前端开发与构建。具体版本以依赖和构建配置为准。
+项目以 Tauri、React、TypeScript、MapLibre GL JS 和 SQLite 为技术基础，使用 Vite 支持前端开发与构建。在线矢量地图由 OpenFreeMap 提供，数据基于 OpenStreetMap。具体版本以依赖和构建配置为准。
 
 - 前端负责界面、交互和地图呈现。
 - 领域逻辑负责轨迹处理、数据校验、指标计算及业务规则，尽量独立于界面组件。

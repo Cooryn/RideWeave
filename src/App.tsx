@@ -47,7 +47,7 @@ export default function App() {
     [report, setReport] = useState<string[]>([]),
     [edit, setEdit] = useState(false),
     [name, setName] = useState(""),
-    [confirmDelete, setConfirmDelete] = useState(false);
+    [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [dark, setDark] = useState(
     () => localStorage.getItem("rideweave-theme") !== "light",
   );
@@ -87,7 +87,7 @@ export default function App() {
   function select(id: string) {
     setSelected(id);
     setEdit(false);
-    setConfirmDelete(false);
+    setConfirmDelete(null);
     setHidden((prev) => {
       const s = new Set(prev);
       s.delete(id);
@@ -145,6 +145,47 @@ export default function App() {
       setBusy(false);
     }
   }
+  async function removeRide(ride: Ride) {
+    if (lock.current) return;
+    lock.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      await deleteRide(ride.id);
+      setRides((prev) => prev.filter((r) => r.id !== ride.id));
+      setSelected((prev) => (prev === ride.id ? null : prev));
+      setHidden((prev) => {
+        const next = new Set(prev);
+        next.delete(ride.id);
+        return next;
+      });
+      setConfirmDelete(null);
+    } catch (e) {
+      setError(`删除失败：${String(e)}`);
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
+  }
+  const deletionPrompt = (ride: Ride) => (
+    <div className="delete-confirm" role="alert">
+      <p>删除“{ride.name}”及保存的原始轨迹？此操作不可撤销，源文件不受影响。</p>
+      <button
+        className="danger"
+        disabled={busy}
+        onClick={() => void removeRide(ride)}
+      >
+        {busy ? "正在删除…" : "确认删除"}
+      </button>
+      <button
+        className="subtle"
+        disabled={busy}
+        onClick={() => setConfirmDelete(null)}
+      >
+        取消
+      </button>
+    </div>
+  );
   const cards = [
     {
       label: "累计骑行距离",
@@ -211,6 +252,16 @@ export default function App() {
         >
           {hidden.has(r.id) ? <EyeOff size={16} /> : <Eye size={16} />}
         </button>
+        <button
+          className="icon-button danger"
+          title="删除骑行记录"
+          aria-label={`删除 ${r.name}`}
+          disabled={busy}
+          onClick={() => setConfirmDelete(r.id)}
+        >
+          <Trash2 size={16} />
+        </button>
+        {confirmDelete === r.id && deletionPrompt(r)}
       </div>
     ));
   return (
@@ -379,7 +430,9 @@ export default function App() {
                   rides={visible}
                   selected={selected}
                   onSelect={select}
+                  onClearSelection={() => setSelected(null)}
                   fitKey={fitKey}
+                  dark={dark}
                 />
                 {!rides.length && (
                   <div className="empty-map">
@@ -506,38 +559,13 @@ export default function App() {
                         <button
                           className="danger"
                           disabled={busy}
-                          onClick={() => setConfirmDelete(true)}
+                          onClick={() => setConfirmDelete(current.id)}
                         >
                           <Trash2 size={15} />
                           删除
                         </button>
                       </div>
-                      {confirmDelete && (
-                        <div className="delete-confirm" role="alert">
-                          <p>
-                            删除这条骑行记录及保存的原始轨迹？此操作不可撤销，源文件不受影响。
-                          </p>
-                          <button
-                            className="danger"
-                            disabled={busy}
-                            onClick={() =>
-                              void mutate(async () => {
-                                await deleteRide(current.id);
-                                setSelected(null);
-                                setConfirmDelete(false);
-                              })
-                            }
-                          >
-                            确认删除
-                          </button>
-                          <button
-                            className="subtle"
-                            onClick={() => setConfirmDelete(false)}
-                          >
-                            取消
-                          </button>
-                        </div>
-                      )}
+                      {confirmDelete === current.id && deletionPrompt(current)}
                     </div>
                   </>
                 ) : (
@@ -637,13 +665,18 @@ export default function App() {
               </div>
               <h2>地图与隐私</h2>
               <p>
-                地图底图需要联网访问
-                OpenStreetMap；请求包含当前地图瓦片范围。GPX
+                地图底图需要联网访问 OpenFreeMap（基于 OpenStreetMap
+                数据）；请求包含当前地图范围和样式资源。GPX
                 文件不会上传到服务器。
+              </p>
+              <p>
+                骑行热区会按轨迹范围加载道路瓦片，在本机沿相连道路匹配，颜色仅沿道路显示重合记录数。
+                同次骑行往返只计一次，不向道路外扩散。地图服务会收到道路瓦片范围请求，GPX
+                与时间不上传。 匹配为估算，不会修改骑行距离或原始 GPX。
               </p>
 
               <h2>关于 RideWeave</h2>
-              <p>RideWeave 0.1.0</p>
+              <p>RideWeave 0.2.0</p>
             </section>
           )}
         </div>
