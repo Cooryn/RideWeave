@@ -49,7 +49,7 @@ SQLite 由 Tauri SQL 插件保存在 Windows 应用配置目录：
 ```powershell
 npm test
 npm run build
-npm run tauri build
+npm run tauri build -- --features custom-protocol
 ```
 
 NSIS 安装包输出到 `src-tauri/target/release/bundle/nsis/`，程序输出到 `src-tauri/target/release/rideweave.exe`。首次构建需要下载 Rust crates、Tauri 打包工具；安装时若缺少 WebView2，需要联网安装运行时。未配置商业代码签名，Windows 可能提示未知发布者。
@@ -95,3 +95,18 @@ V0.1 不包含 GPS 道路匹配、实时定位、自动 Apple Health 同步、�
 RideWeave 原创代码采用 [MIT License](LICENSE)，Copyright (c) 2026 Cooryn。允许使用、修改和分发（包括商业用途），分发时须保留版权和许可声明；软件按原样提供，不附带保证。
 
 第三方依赖和地图数据保留各自许可，详见 [第三方许可说明](THIRD_PARTY_NOTICES.md)。用户导入的 GPX、个人轨迹及数据库不因使用本软件而被授予 MIT 许可。
+
+### 界面与窗口
+
+默认使用运动风格深色外观：近黑背景、炭灰圆角卡片和彩色指标；设置中可切换浅色模式。字体优先使用系统无衬线字体，Windows 使用 Segoe UI Variable / 微软雅黑 UI，无需下载字体。
+
+桌面窗口使用应用内标题栏：拖动顶部空白区域移动窗口，双击拖动区域最大化或还原，右上角按钮负责最小化、最大化或还原和关闭。内容区与记录列表使用细窄主题滚动条，支持滚轮与拖动。浏览器预览不显示桌面窗口控制按钮。更换系统窗口装饰需要重新启动桌面应用。
+
+发布构建必须启用 `custom-protocol`，将前端资源内嵌到程序中。禁止直接将不带此特性的 `cargo build --release` 产物打包，否则程序会连接开发服务器 localhost:1420。项目已添加编译保护以阻止此类发布构建。
+
+
+浅色外观与深色外观共享运动指标配色语义，使用冷灰背景、白色卡片和适合浅底阅读的深色指标。应用内品牌标识直接引用 `src-tauri/icon.svg`，桌面 ICO 与其他尺寸图标由同一源文件生成，保持荧光绿圆底与黑色骑行人物一致。
+
+Windows 图标资源由 `build.rs` 显式跟踪 `icons/icon.ico` 的变更，以免增量构建复用旧图标。更换图标后应检查最终 EXE 提取出的图标，不能仅检查 SVG 或 PNG 源文件。
+
+

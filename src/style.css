@@ -1,15 +1,23 @@
 :root {
-  font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
-  color: #253b35;
-  background: #f5f7f6;
+  font-family:
+    "SF Pro Display",
+    "SF Pro Text",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI Variable",
+    "Segoe UI",
+    "Microsoft YaHei UI",
+    sans-serif;
+  color: var(--text);
+  background: var(--bg);
   font-synthesis: none;
-  --bg: #f5f7f6;
+  --bg: #f2f3f5;
   --surface: #fff;
-  --text: #253b35;
-  --muted: #84908b;
-  --border: #e7ece9;
-  --soft: #eef6f1;
-  --green: #16805e;
+  --text: #191b1e;
+  --muted: #62666d;
+  --border: #e0e2e6;
+  --soft: #e9ebee;
+  --green: #416d00;
 }
 * {
   box-sizing: border-box;
@@ -68,7 +76,8 @@ small {
 }
 .app {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 .sidebar {
   width: 214px;
@@ -209,7 +218,7 @@ header {
   margin-bottom: 11px;
 }
 h1 {
-  font-size: 28px;
+  font-size: 34px;
   letter-spacing: 0.5px;
   margin-bottom: 9px;
 }
@@ -223,7 +232,7 @@ h1 {
   color: white;
   padding: 12px 17px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
   box-shadow: 0 4px 10px #16805e14;
 }
 .primary > span {
@@ -255,8 +264,8 @@ h1 {
 }
 .stat-card > strong {
   display: block;
-  font-size: 29px;
-  font-weight: 600;
+  font-size: 34px;
+  font-weight: 700;
   letter-spacing: -1px;
   margin: 14px 0 9px;
 }
@@ -716,18 +725,18 @@ footer > span:last-child {
   letter-spacing: 1.5px;
 }
 [data-theme="dark"] {
-  --bg: #131d19;
-  --surface: #1b2822;
-  --text: #e2ece6;
-  --muted: #91a498;
-  --border: #304037;
-  --soft: #243b2e;
-  --green: #299b72;
+  --bg: #080b0c;
+  --surface: #202122;
+  --text: #f8fafb;
+  --muted: #989b9d;
+  --border: #303234;
+  --soft: #2a2d2e;
+  --green: #a9ff00;
   background: var(--bg);
   color: var(--text);
 }
-[data-theme="dark"] .map {
-  filter: brightness(0.8);
+[data-theme="dark"] .map .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.7) saturate(0.4);
 }
 @media (min-width: 1550px) {
   .map-wrap {
@@ -809,4 +818,351 @@ footer > span:last-child {
   .stats-extra {
     grid-template-columns: 1fr;
   }
+}
+
+/* Shared app chrome and Fitness-inspired visual language. */
+:root {
+  --distance: #007ca8;
+  --duration: #876900;
+  --activity: #477500;
+  --speed: #007b78;
+  font-weight: 500;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+  --distance: #00b9f2;
+  --duration: #ffe620;
+  --activity: #a9ff00;
+  --speed: #2ddbd5;
+}
+[data-theme="light"] {
+  color-scheme: light;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #66696c transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #66696c;
+  border: 2px solid var(--bg);
+  border-radius: 20px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #929698;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+button {
+  border-radius: 14px;
+}
+button:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+button:focus-visible,
+input:focus-visible {
+  outline-color: var(--green);
+}
+h1,
+h2,
+h3 {
+  font-weight: 750;
+  letter-spacing: -0.6px;
+}
+h2 {
+  font-size: 18px;
+}
+.sidebar {
+  background: var(--bg);
+  padding-top: 30px;
+}
+.brand {
+  font-size: 18px;
+}
+.brand > span {
+  background: var(--green);
+  color: var(--bg);
+  border-radius: 50%;
+}
+nav {
+  padding: 6px;
+  border-radius: 24px;
+  background: var(--surface);
+}
+nav button {
+  color: var(--muted);
+  border-radius: 19px;
+  font-size: 14px;
+}
+nav .selected {
+  background: var(--bg);
+  color: var(--green);
+}
+.journey {
+  border-radius: 22px;
+  background: var(--surface);
+}
+header {
+  position: sticky;
+  top: 0;
+  z-index: 600;
+  height: 56px;
+  padding: 0 12px 0 35px;
+  background: var(--bg);
+  user-select: none;
+}
+.breadcrumb {
+  flex: 1;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+}
+.header-actions,
+.window-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.header-actions > .icon-button {
+  margin-right: 14px;
+  border-radius: 50%;
+  background: var(--surface);
+}
+.window-controls button {
+  width: 38px;
+  height: 32px;
+  border-radius: 10px;
+  color: var(--muted);
+}
+.window-controls button:hover {
+  background: var(--soft);
+  color: var(--text);
+}
+.window-controls .window-close:hover {
+  background: #e43848;
+  color: white;
+}
+.window-error {
+  font-size: 11px;
+  color: #ff6580;
+}
+.content {
+  padding-top: 30px;
+}
+.page-heading {
+  margin-bottom: 30px;
+}
+.page-heading p {
+  font-size: 13px;
+}
+.primary {
+  color: var(--bg);
+  border-radius: 999px;
+  padding: 13px 20px;
+  box-shadow: none;
+}
+.stat-card,
+.map-panel,
+.ride-panel,
+.surface {
+  border-radius: 26px;
+}
+.stat-card {
+  border: 0;
+  padding: 24px;
+}
+.stat-card > div {
+  color: var(--text);
+  font-size: 13px;
+}
+.stat-card > strong {
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+.stat-card:nth-child(1) {
+  --metric: var(--distance);
+}
+.stat-card:nth-child(2) {
+  --metric: var(--activity);
+}
+.stat-card:nth-child(3) {
+  --metric: var(--duration);
+}
+.stat-card:nth-child(4) {
+  --metric: var(--speed);
+}
+.stat-card > strong,
+.stat-card svg,
+.stat-card strong small {
+  color: var(--metric);
+}
+.stat-card strong small {
+  font-weight: 650;
+}
+.stat-note {
+  font-size: 11px;
+}
+.map-wrap,
+.leaflet-container {
+  background: var(--bg);
+}
+.map-label,
+.map-controls,
+.map-legend,
+.tile-warning {
+  border-radius: 14px;
+}
+.map-legend i {
+  background: #169b72;
+}
+[data-theme="dark"] .leaflet-control-attribution {
+  background: #202122e8;
+  color: var(--muted);
+}
+[data-theme="dark"] .leaflet-control-attribution a {
+  color: var(--distance);
+}
+.empty-map {
+  border-radius: 28px;
+  box-shadow: 0 16px 60px #0005;
+}
+.empty-symbol {
+  border-radius: 50%;
+}
+.empty-list svg {
+  color: var(--green);
+}
+.empty-list h3 {
+  font-weight: 650;
+}
+.month-card {
+  border-radius: 22px;
+}
+.month-card strong {
+  color: var(--green);
+  font-size: 32px;
+}
+.ride-distance {
+  color: var(--distance);
+  font-weight: 700;
+}
+.detail-metrics {
+  padding: 18px;
+  background: var(--bg);
+  border-radius: 22px;
+}
+.detail-metrics small {
+  color: var(--text);
+  font-size: 12px;
+}
+.detail-metrics strong {
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+}
+.detail-metrics > div:nth-child(1) strong {
+  color: var(--distance);
+}
+.detail-metrics > div:nth-child(2) strong {
+  color: var(--duration);
+}
+.detail-metrics > div:nth-child(3) strong {
+  color: var(--speed);
+}
+.detail-metrics > div:nth-child(4) strong {
+  color: var(--activity);
+}
+.danger {
+  color: #ff375f;
+}
+[data-theme="dark"] .error,
+[data-theme="dark"] .delete-confirm {
+  background: #3b2027;
+  color: #ff8da4;
+}
+[data-theme="dark"] .tile-warning {
+  color: #ffe620;
+}
+@media (max-width: 1150px) {
+  .stat-card {
+    padding: 18px;
+  }
+  .detail-metrics {
+    padding: 12px;
+  }
+  .detail-metrics strong {
+    font-size: 21px;
+  }
+}
+
+main {
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+/* The same brand mark is shared by both themes and desktop packaging. */
+.brand > span {
+  background: transparent;
+}
+.brand img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+[data-theme="light"] .primary {
+  background: #a9ff00;
+  color: #191b1e;
+}
+[data-theme="light"] nav .selected {
+  background: #e9f6d4;
+  color: #416d00;
+}
+[data-theme="light"] .stat-card,
+[data-theme="light"] .surface,
+[data-theme="light"] .map-panel,
+[data-theme="light"] .ride-panel {
+  box-shadow: 0 3px 16px #14182006;
+}
+[data-theme="light"] .month-card {
+  background: #f0f6e7;
+}
+[data-theme="light"] .ride-row.active {
+  background: #f0f6e7;
+}
+[data-theme="light"] .ride-icon,
+[data-theme="light"] .empty-symbol {
+  background: #e9f6d4;
+}
+[data-theme="light"] .danger {
+  color: #c42148;
+}
+[data-theme="light"] .error,
+[data-theme="light"] .delete-confirm {
+  background: #fff0f3;
+  color: #a51c3e;
+}
+[data-theme="light"] button:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+[data-theme="light"] .breadcrumb span,
+[data-theme="light"] .local-status small {
+  color: var(--muted);
+}
+[data-theme="light"] .live-dot {
+  background: #568b00;
+}
+[data-theme="light"] .tile-warning {
+  color: #805d00;
 }

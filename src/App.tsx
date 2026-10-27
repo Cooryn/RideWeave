@@ -22,6 +22,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import RideMap from "./Map";
+import WindowControls from "./WindowControls";
 import type { Ride } from "./types";
 import { parseGpx } from "./gpx";
 import { stats, number, dateLabel } from "./stats";
@@ -47,7 +48,7 @@ export default function App() {
     [name, setName] = useState(""),
     [confirmDelete, setConfirmDelete] = useState(false);
   const [dark, setDark] = useState(
-    () => localStorage.getItem("rideweave-theme") === "dark",
+    () => localStorage.getItem("rideweave-theme") !== "light",
   );
   const input = useRef<HTMLInputElement>(null),
     lock = useRef(false);
@@ -208,11 +209,14 @@ export default function App() {
       <aside className="sidebar">
         <div className="brand">
           <span>
-            <Bike size={27} />
+            <img
+              src={new URL("../src-tauri/icon.svg", import.meta.url).href}
+              alt=""
+              width="47"
+              height="47"
+            />
           </span>
-          <div>
-            RideWeave
-          </div>
+          <div>RideWeave</div>
         </div>
         <div className="nav-caption">你的骑行空间</div>
         <nav>
@@ -253,8 +257,8 @@ export default function App() {
         </div>
       </aside>
       <main>
-        <header>
-          <div className="breadcrumb">
+        <header data-tauri-drag-region>
+          <div className="breadcrumb" data-tauri-drag-region>
             我的空间 <span>/</span>{" "}
             {
               {
@@ -265,13 +269,16 @@ export default function App() {
               }[page]
             }
           </div>
-          <button
-            className="icon-button"
-            title={dark ? "切换浅色" : "切换深色"}
-            onClick={() => setDark(!dark)}
-          >
-            {dark ? <Sun size={19} /> : <Moon size={19} />}
-          </button>
+          <div className="header-actions">
+            <button
+              className="icon-button"
+              title={dark ? "切换浅色" : "切换深色"}
+              onClick={() => setDark(!dark)}
+            >
+              {dark ? <Sun size={19} /> : <Moon size={19} />}
+            </button>
+            <WindowControls />
+          </div>
         </header>
         <div className="content">
           <div className="page-heading">
@@ -659,7 +666,7 @@ export default function App() {
               <div className="setting-row">
                 <div>
                   <strong>深色模式</strong>
-                  <p>切换应用界面主题，地图保留原始底图配色。</p>
+                  <p>默认采用运动风格深色主题，也可切换浅色外观。</p>
                 </div>
                 <button className="subtle" onClick={() => setDark(!dark)}>
                   {dark ? <Moon size={18} /> : <Sun size={18} />}{" "}

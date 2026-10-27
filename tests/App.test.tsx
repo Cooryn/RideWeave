@@ -24,6 +24,16 @@ vi.mock("../src/Map", () => ({
     <div data-testid="map">{rides.map((r) => r.name).join(",")}</div>
   ),
 }));
+const windowApi = vi.hoisted(() => ({
+  minimize: vi.fn().mockResolvedValue(undefined),
+  toggleMaximize: vi.fn().mockResolvedValue(undefined),
+  close: vi.fn().mockResolvedValue(undefined),
+  isMaximized: vi.fn().mockResolvedValue(false),
+  onResized: vi.fn().mockResolvedValue(() => {}),
+}));
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => windowApi,
+}));
 import App from "../src/App";
 let root: Root, container: HTMLDivElement;
 beforeEach(async () => {
@@ -95,4 +105,31 @@ it("imports a mixed batch, reports duplicates/errors, hides routes and deletes w
   expect(container.querySelectorAll(".stat-card strong")[1].textContent).toBe(
     "0次",
   );
+});
+
+it("uses integrated window controls and reports native failures", async () => {
+  for (const [label, method] of [
+    ["最小化窗口", "minimize"],
+    ["最大化窗口", "toggleMaximize"],
+    ["关闭窗口", "close"],
+  ] as const) {
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
+        .click(),
+    );
+    expect(windowApi[method]).toHaveBeenCalled();
+  }
+  windowApi.minimize.mockRejectedValueOnce(new Error("denied"));
+  await act(async () =>
+    container
+      .querySelector<HTMLButtonElement>('button[aria-label="最小化窗口"]')!
+      .click(),
+  );
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+    "窗口操作失败",
+  );
+  expect(
+    container.querySelector("header[data-tauri-drag-region]"),
+  ).not.toBeNull();
 });

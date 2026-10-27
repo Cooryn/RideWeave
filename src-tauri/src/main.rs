@@ -1,5 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg(all(not(debug_assertions), not(feature = "custom-protocol")))]
+compile_error!("Release builds must embed frontend assets. Use npm run tauri build -- --features custom-protocol.");
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_sql::Builder::default().add_migrations("sqlite:rideweave.db", vec![
@@ -13,3 +16,4 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("无法启动 RideWeave");
 }
+
