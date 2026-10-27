@@ -211,7 +211,7 @@ export default function App() {
             <Bike size={27} />
           </span>
           <div>
-            骑络<small>RIDEWEAVE</small>
+            RideWeave
           </div>
         </div>
         <div className="nav-caption">你的骑行空间</div>
@@ -688,7 +688,7 @@ export default function App() {
                 断网时仍可导入、管理记录并查看轨迹线，未加载的底图不可用。V0.1
                 不提供离线地图下载。
               </p>
-              <h2>关于骑络</h2>
+              <h2>关于 RideWeave</h2>
               <p>RideWeave 0.1.0 · 让每一次出发，都有迹可循。</p>
             </section>
           )}
@@ -697,7 +697,7 @@ export default function App() {
               <span className="live-dot" />{" "}
               {desktop ? "记录保存在本机" : "预览模式"} · 不需要账户
             </span>
-            <span>骑络 / RIDEWEAVE</span>
+            <span>RideWeave</span>
           </footer>
         </div>
       </main>

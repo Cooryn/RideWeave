@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "骑络 RideWeave",
+        "title": "RideWeave",
         "width": 1440,
         "height": 940,
         "minWidth": 980,

@@ -83,14 +83,15 @@ small {
 }
 .brand {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   align-items: center;
   margin: 0 7px 49px;
-  font-size: 25px;
+  font-size: 16px;
   font-weight: 750;
-  letter-spacing: 2px;
+  letter-spacing: -0.4px;
 }
 .brand > span {
+  flex-shrink: 0;
   background: var(--green);
   color: white;
   display: grid;
@@ -98,13 +99,6 @@ small {
   width: 47px;
   height: 47px;
   border-radius: 14px;
-}
-.brand small {
-  display: block;
-  font-size: 9px;
-  letter-spacing: 2px;
-  margin-top: 4px;
-  color: var(--muted);
 }
 .nav-caption {
   font-size: 10px;

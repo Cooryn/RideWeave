@@ -1,4 +1,4 @@
-# 骑络 RideWeave 0.1
+# RideWeave 0.1
 
 Windows 个人骑行轨迹管理应用。Tauri 2 + React + TypeScript + Leaflet/OpenStreetMap + SQLite。无账户、无云同步，真实数据为空时展示空状态，不附带虚构骑行记录。
 
