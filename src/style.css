@@ -1166,3 +1166,208 @@ main {
 [data-theme="light"] .tile-warning {
   color: #805d00;
 }
+
+/* The map workspace fills the available window; only its record panels scroll. */
+.map-page main {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
+.map-page header {
+  flex: 0 0 56px;
+}
+.map-page .content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  padding-top: clamp(16px, 2.4vh, 28px);
+  margin: 0 auto;
+}
+.map-page .page-heading {
+  flex-shrink: 0;
+  margin-bottom: clamp(14px, 2vh, 24px);
+}
+.map-page .stats-grid {
+  flex-shrink: 0;
+  margin-bottom: clamp(14px, 2vh, 24px);
+}
+.map-page .map-layout {
+  flex: 1;
+  min-height: 0;
+}
+.map-page .map-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.map-page .panel-heading {
+  flex-shrink: 0;
+  min-height: 62px;
+  padding: 14px 18px;
+}
+.map-page .map-wrap {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+.map-page .ride-panel {
+  min-height: 0;
+}
+.map-page .ride-list {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+}
+.map-page .detail {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.map-page .month-card {
+  flex-shrink: 0;
+  margin-top: 12px;
+}
+.map-page footer {
+  flex-shrink: 0;
+  padding: 12px 0;
+}
+.map-page .notice {
+  flex-shrink: 0;
+  max-height: 88px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+.map-page .report details {
+  max-height: none;
+  overflow: visible;
+}
+.map-page .empty-map {
+  top: calc(50% + 31px);
+  transform: translate(-50%, -50%);
+  padding: 18px;
+}
+@media (max-height: 800px) {
+  .map-page .content {
+    padding-top: 14px;
+  }
+  .map-page .page-heading {
+    margin-bottom: 14px;
+  }
+  .map-page .eyebrow {
+    margin-bottom: 5px;
+  }
+  .map-page h1 {
+    font-size: 28px;
+    margin-bottom: 5px;
+  }
+  .map-page .stat-card {
+    padding: 14px 18px;
+  }
+  .map-page .stat-card > strong {
+    font-size: 28px;
+    margin: 8px 0 5px;
+  }
+  .map-page .stats-grid {
+    margin-bottom: 14px;
+  }
+  .map-page .empty-symbol {
+    width: 36px;
+    height: 36px;
+    margin-bottom: 8px;
+  }
+  .map-page .empty-map p {
+    margin-bottom: 10px;
+  }
+  .map-page .empty-map .primary {
+    padding: 9px 16px;
+  }
+  .map-page .empty-list {
+    padding: 24px 12px;
+  }
+  .map-page .empty-list svg {
+    margin-bottom: 8px;
+  }
+  .map-page .month-card {
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+  .map-page .month-card strong {
+    font-size: 26px;
+    margin: 6px 0;
+  }
+}
+/* Browser previews below the supported desktop width retain accessible flow. */
+@media (max-width: 850px) {
+  .map-page main {
+    overflow-y: auto;
+  }
+  .map-page .content {
+    flex: none;
+  }
+  .map-page .map-layout {
+    flex: none;
+  }
+  .map-page .map-wrap {
+    flex: none;
+    height: 360px;
+  }
+  .map-page .ride-list,
+  .map-page .detail {
+    max-height: 360px;
+    flex: auto;
+  }
+}
+
+.titlebar-drag {
+  flex: 1;
+  align-self: stretch;
+}
+.brand {
+  margin-bottom: 28px;
+}
+.stat-card > strong {
+  margin-bottom: 0;
+}
+.map-page .stat-card > strong {
+  margin-bottom: 0;
+}
+
+/* Cover newly exposed pixels while the native window is being resized. */
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+}
+html,
+body {
+  overflow: hidden;
+}
+.app {
+  width: 100%;
+  height: 100%;
+  background: var(--bg);
+}
+
+.page-heading h1 {
+  font-size: 28px;
+  line-height: 1.25;
+  margin: 0;
+}
+.page-heading {
+  margin-bottom: 18px;
+}
+
+.content {
+  padding-bottom: 20px;
+}
+.stats-extra {
+  grid-template-columns: 1fr;
+}

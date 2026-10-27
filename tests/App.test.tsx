@@ -34,6 +34,12 @@ const windowApi = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => windowApi,
 }));
+const setNativeBackground = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(undefined),
+);
+vi.mock("@tauri-apps/api/webviewWindow", () => ({
+  getCurrentWebviewWindow: () => ({ setBackgroundColor: setNativeBackground }),
+}));
 import App from "../src/App";
 let root: Root, container: HTMLDivElement;
 beforeEach(async () => {
@@ -96,7 +102,9 @@ it("imports a mixed batch, reports duplicates/errors, hides routes and deletes w
   await act(async () =>
     container.querySelector<HTMLButtonElement>(".ride-main")!.click(),
   );
-  expect(container.textContent).toContain("平均速度 = GPS 距离 ÷ 记录经过时间");
+  expect(container.textContent).toContain(
+    "经过时间含停留，缺少完整时间时不计算速度。",
+  );
   await click("删除");
   expect(data.rides).toHaveLength(1);
   await click("确认删除");
@@ -132,4 +140,19 @@ it("uses integrated window controls and reports native failures", async () => {
   expect(
     container.querySelector("header[data-tauri-drag-region]"),
   ).not.toBeNull();
+});
+
+it("keeps native window and webview background aligned with the selected theme", async () => {
+  const initialDark = document.documentElement.dataset.theme === "dark";
+  expect(setNativeBackground).toHaveBeenLastCalledWith(
+    initialDark ? "#080b0c" : "#f2f3f5",
+  );
+  await act(async () =>
+    container
+      .querySelector<HTMLButtonElement>(".header-actions > button")!
+      .click(),
+  );
+  expect(setNativeBackground).toHaveBeenLastCalledWith(
+    initialDark ? "#f2f3f5" : "#080b0c",
+  );
 });

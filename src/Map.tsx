@@ -103,7 +103,7 @@ export default function RideMap({
         </div>
       )}
       <div className="map-legend">
-        <i /> 已骑行路线 <span>每一程，都在连接你的城市</span>
+        <i /> 已骑行路线
       </div>
     </div>
   );

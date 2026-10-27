@@ -1,3 +1,4 @@
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bike,
@@ -63,6 +64,14 @@ export default function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
     localStorage.setItem("rideweave-theme", dark ? "dark" : "light");
+    if (desktop) {
+      const background = getComputedStyle(document.documentElement)
+        .getPropertyValue("--bg")
+        .trim();
+      void getCurrentWebviewWindow()
+        .setBackgroundColor(background || (dark ? "#080b0c" : "#f2f3f5"))
+        .catch(console.error);
+    }
   }, [dark]);
   const summary = stats(rides),
     current = rides.find((r) => r.id === selected);
@@ -205,7 +214,7 @@ export default function App() {
       </div>
     ));
   return (
-    <div className="app">
+    <div className={`app ${page === "map" ? "map-page" : ""}`}>
       <aside className="sidebar">
         <div className="brand">
           <span>
@@ -218,7 +227,7 @@ export default function App() {
           </span>
           <div>RideWeave</div>
         </div>
-        <div className="nav-caption">你的骑行空间</div>
+
         <nav>
           {(
             [
@@ -240,35 +249,15 @@ export default function App() {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <div className="journey">
-            <Route size={25} />
-            <strong>把走过的路，连成风景。</strong>
-            <p>
-              记录每一次出发，
-              <br />
-              看见属于你的骑行网络。
-            </p>
-          </div>
           <div className="local-status">
             <span className="live-dot" />
-            {desktop ? "本地存储 · 数据由你掌握" : "浏览器界面预览"}
-            <small>RideWeave v0.1.0</small>
+            {desktop ? "本地存储" : "浏览器界面预览"}
           </div>
         </div>
       </aside>
       <main>
         <header data-tauri-drag-region>
-          <div className="breadcrumb" data-tauri-drag-region>
-            我的空间 <span>/</span>{" "}
-            {
-              {
-                map: "骑行地图",
-                history: "历史记录",
-                stats: "数据统计",
-                settings: "设置",
-              }[page]
-            }
-          </div>
+          <div className="titlebar-drag" data-tauri-drag-region />
           <div className="header-actions">
             <button
               className="icon-button"
@@ -283,27 +272,16 @@ export default function App() {
         <div className="content">
           <div className="page-heading">
             <div>
-              <div className="eyebrow">YOUR RIDES, CONNECTED</div>
               <h1>
                 {
                   {
-                    map: "每一程，都算数。",
-                    history: "回望每一次出发",
-                    stats: "看见你的积累",
-                    settings: "让骑行记录更自在",
+                    map: "骑行地图",
+                    history: "历史记录",
+                    stats: "数据统计",
+                    settings: "设置",
                   }[page]
                 }
               </h1>
-              <p>
-                {
-                  {
-                    map: "在地图上收藏足迹，慢慢织出你的骑行网络。",
-                    history: "每一段路线，都是属于你的城市记忆。",
-                    stats: "由真实轨迹计算，记录每一步进展。",
-                    settings: "简单、私密，属于你自己的骑行空间。",
-                  }[page]
-                }
-              </p>
             </div>
             <button
               className="primary"
@@ -373,13 +351,6 @@ export default function App() {
                       {c.value}
                       <small>{c.unit}</small>
                     </strong>
-                    <span className="stat-note">
-                      {c.label === "累计骑行时间"
-                        ? summary.missingTime
-                          ? `${summary.missingTime} 条记录缺少完整时间`
-                          : "按记录经过时间计算"
-                        : "来自你的 GPX 轨迹"}
-                    </span>
                   </div>
                 ))}
               </div>
@@ -391,7 +362,6 @@ export default function App() {
                 <div className="panel-heading">
                   <div>
                     <h2>我的骑行版图</h2>
-                    <span>足迹交汇的地方，就是你的生活半径</span>
                   </div>
                   <button
                     className="subtle"
@@ -416,12 +386,8 @@ export default function App() {
                     <span className="empty-symbol">
                       <Route size={28} />
                     </span>
-                    <h3>你的骑行网络，从这里开始</h3>
-                    <p>
-                      导入 Apple 健康导出的 GPX 文件，
-                      <br />
-                      让每一次骑行在地图上留下足迹。
-                    </p>
+                    <h3>暂无骑行记录</h3>
+
                     <button
                       className="primary"
                       disabled={!desktop || busy || !ready}
@@ -522,8 +488,7 @@ export default function App() {
                         </div>
                       </div>
                       <p className="calculation">
-                        平均速度 = GPS 距离 ÷
-                        记录经过时间（含停留）。缺少完整或有序时间时不计算。
+                        经过时间含停留，缺少完整时间时不计算速度。
                       </p>
                       <p className="filename">原始文件：{current.filename}</p>
                       <div className="detail-actions">
@@ -595,8 +560,7 @@ export default function App() {
                       ) : (
                         <div className="empty-list">
                           <Bike size={32} />
-                          <h3>期待你的第一程</h3>
-                          <p>导入的骑行记录会出现在这里</p>
+                          <h3>暂无骑行记录</h3>
                         </div>
                       )}
                     </div>
@@ -605,7 +569,6 @@ export default function App() {
                       <strong>
                         {number(summary.month)} <small>km</small>
                       </strong>
-                      <p>一点一滴，汇成更远的风景。</p>
                     </div>
                   </>
                 )}
@@ -616,7 +579,6 @@ export default function App() {
             <section className="surface">
               <div className="panel-heading">
                 <h2>全部骑行 · {rides.length}</h2>
-                <span>按骑行时间倒序 · 无日期记录置后</span>
               </div>
               {rides.length ? (
                 list(ordered)
@@ -624,7 +586,7 @@ export default function App() {
                 <div className="empty-list">
                   <History size={34} />
                   <h3>还没有骑行记录</h3>
-                  <p>使用右上角“导入 GPX”添加一个或多个文件。</p>
+                  <p>点击“导入 GPX”添加记录。</p>
                 </div>
               )}
             </section>
@@ -633,7 +595,7 @@ export default function App() {
             <div className="stats-extra">
               <section className="surface">
                 <div className="panel-heading">
-                  <h2>这个月，你骑了多远？</h2>
+                  <h2>本月骑行</h2>
                 </div>
                 <div className="big-month">
                   {number(summary.month)} <small>km</small>
@@ -642,22 +604,14 @@ export default function App() {
                       year: "numeric",
                       month: "long",
                     })}{" "}
-                    · 按本地时区统计
                   </p>
                 </div>
               </section>
-              <section className="surface explanation">
-                <h2>数据如何计算</h2>
-                <p>距离使用相邻 GPS 点的大圆距离累加，不跨轨迹分段连接。</p>
-                <p>
-                  经过时间为首尾时间之差，包含停留；所有点的时间须完整且不倒序。
-                </p>
-                <p>
-                  累计时间仅汇总可计算的记录；目前 {summary.missingTime}{" "}
-                  条记录缺少有效时间。无日期的记录不计入本月。
-                </p>
-                <p>GPS 漂移可能影响距离。V0.1 不进行道路匹配或重复道路去重。</p>
-              </section>
+              {summary.missingTime > 0 && (
+                <div className="notice">
+                  {summary.missingTime} 条记录缺少有效时间，未计入累计时间。
+                </div>
+              )}
             </div>
           )}
           {page === "settings" && (
@@ -666,7 +620,6 @@ export default function App() {
               <div className="setting-row">
                 <div>
                   <strong>深色模式</strong>
-                  <p>默认采用运动风格深色主题，也可切换浅色外观。</p>
                 </div>
                 <button className="subtle" onClick={() => setDark(!dark)}>
                   {dark ? <Moon size={18} /> : <Sun size={18} />}{" "}
@@ -678,10 +631,7 @@ export default function App() {
                 <Database size={24} />
                 <div>
                   <strong>SQLite · 仅保存在这台电脑</strong>
-                  <p>
-                    骑行数据和原始 GPX 保存在应用配置目录的 rideweave.db
-                    中。备份前请关闭应用。
-                  </p>
+                  <p>备份前请关闭应用。</p>
                   <code>%APPDATA%\com.rideweave.desktop\rideweave.db</code>
                 </div>
               </div>
@@ -691,21 +641,11 @@ export default function App() {
                 OpenStreetMap；请求包含当前地图瓦片范围。GPX
                 文件不会上传到服务器。
               </p>
-              <p>
-                断网时仍可导入、管理记录并查看轨迹线，未加载的底图不可用。V0.1
-                不提供离线地图下载。
-              </p>
+
               <h2>关于 RideWeave</h2>
-              <p>RideWeave 0.1.0 · 让每一次出发，都有迹可循。</p>
+              <p>RideWeave 0.1.0</p>
             </section>
           )}
-          <footer>
-            <span>
-              <span className="live-dot" />{" "}
-              {desktop ? "记录保存在本机" : "预览模式"} · 不需要账户
-            </span>
-            <span>RideWeave</span>
-          </footer>
         </div>
       </main>
     </div>
