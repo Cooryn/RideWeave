@@ -3,6 +3,7 @@ name = "rideweave"
 version = "0.1.0"
 description = "Personal cycling network"
 edition = "2021"
+license = "MIT"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

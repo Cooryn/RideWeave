@@ -89,3 +89,9 @@ tests/             GPX/统计、真实 SQLite 文件、组件流程与 Leaflet �
 V0.1 不包含 GPS 道路匹配、实时定位、自动 Apple Health 同步、账户、云同步、社交或成就系统。
 
 开发参考：[Tauri 2 SQL 插件与权限](https://v2.tauri.app/plugin/sql/)。项目包含 npm 和 Cargo 锁文件，以固定已验证的依赖版本。
+
+## 开源许可
+
+RideWeave 原创代码采用 [MIT License](LICENSE)，Copyright (c) 2026 Cooryn。允许使用、修改和分发（包括商业用途），分发时须保留版权和许可声明；软件按原样提供，不附带保证。
+
+第三方依赖和地图数据保留各自许可，详见 [第三方许可说明](THIRD_PARTY_NOTICES.md)。用户导入的 GPX、个人轨迹及数据库不因使用本软件而被授予 MIT 许可。
