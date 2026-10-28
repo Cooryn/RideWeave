@@ -224,6 +224,39 @@ it("switches vector styles while preserving the map instance and selected route"
     map.style.layers.find((l: any) => l.id === SELECTED_LAYER).filter,
   ).toEqual(["==", ["get", "rideId"], "one"]);
 });
+it("keeps raw tracks hidden before style.load on theme changes and offline fallback", async () => {
+  await render();
+  const map = mock.instances[0];
+  // Delay style.load so assertions inspect the first renderable style, not the repair callback.
+  map.setStyle.mockImplementation((style: any) => {
+    map.style = style;
+  });
+  for (const dark of [true, false]) {
+    await render([first, second], null, dark);
+    expect(map.getLayer(ROUTES_LAYER).paint["line-opacity"]).toBe(0);
+    expect(map.getLayer(ROUTES_LAYER).paint["line-opacity-transition"]).toEqual(
+      { duration: 0, delay: 0 },
+    );
+    expect(map.getLayer(HIT_LAYER).layout.visibility).toBe("none");
+  }
+  vi.mocked(fetch).mockRejectedValueOnce(new Error("offline"));
+  await render([first, second], null, true);
+  expect(map.getLayer(ROUTES_LAYER).paint["line-opacity"]).toBe(0);
+  await act(async () => {
+    Array.from(element.querySelectorAll("button"))
+      .find((b) => b.textContent === "原始轨迹")!
+      .click();
+  });
+  await render([first, second], null, false);
+  expect(map.getLayer(ROUTES_LAYER).paint["line-opacity"]).toBe(0.8);
+  await render([first, second], "one", true);
+  expect(map.getLayer(ROUTES_LAYER).paint["line-opacity"]).toBe(0);
+  expect(map.getLayer(SELECTED_LAYER).filter).toEqual([
+    "==",
+    ["get", "rideId"],
+    "one",
+  ]);
+});
 it("shows only matched road lines, preserves heat at any zoom and focuses selected routes", async () => {
   const near: Ride = {
     ...first,

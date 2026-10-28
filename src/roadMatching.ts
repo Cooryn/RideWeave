@@ -134,6 +134,9 @@ export function matchRoads(
   }
   raw.forEach(indexEdge);
   // Split at existing endpoints, including T junctions and tile buffer clipping.
+  // Vector tile quantization/simplification can move a junction slightly off its
+  // receiving road. Allow 1.5 m only at real line ends meeting at an angle;
+  // nearby parallel roads and ordinary interior vertices keep the strict limit.
   // Interior crossings are not synthesized; differing bridge/tunnel levels stay separate.
   const cuts = raw.map(() => new Map<number, XY>());
   for (const e of raw)
@@ -142,7 +145,14 @@ export function matchRoads(
         const other = raw[i];
         if (other.grade !== e.grade) continue;
         const q = project(p, other.a, other.b);
-        if (q.distance < 0.3 && q.t > 1e-6 && q.t < 1 - 1e-6)
+        const crossingAngle = Math.abs(
+          ((e.b[0] - e.a[0]) * (other.b[1] - other.a[1]) -
+            (e.b[1] - e.a[1]) * (other.b[0] - other.a[0])) /
+            (e.length * other.length),
+        );
+        const tolerance =
+          endpointGrades.has(node(p)) && crossingAngle > 0.15 ? 1.5 : 0.3;
+        if (q.distance < tolerance && q.t > 1e-6 && q.t < 1 - 1e-6)
           cuts[i].set(q.t, p);
       }
   const edges: Edge[] = [],

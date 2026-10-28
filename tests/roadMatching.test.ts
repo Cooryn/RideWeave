@@ -31,6 +31,81 @@ const ride = (
     coords.map(([lon, lat]) => ({ lon, lat, elevation: null, time: null })),
   ],
 });
+
+function componentCount(data: ReturnType<typeof matchRoads>) {
+  const parents = new Map<string, string>();
+  const root = (key: string): string => {
+    if (!parents.has(key)) parents.set(key, key);
+    const parent = parents.get(key)!;
+    if (parent === key) return key;
+    const found = root(parent);
+    parents.set(key, found);
+    return found;
+  };
+  for (const feature of data.features) {
+    const keys = feature.geometry.coordinates.map((p) =>
+      p.map((v) => v.toFixed(6)).join(","),
+    );
+    for (let i = 1; i < keys.length; i++)
+      parents.set(root(keys[i]), root(keys[i - 1]));
+  }
+  return new Set([...parents.keys()].map(root)).size;
+}
+
+it("repairs sub-meter tile junction offsets while counting each ride only once", () => {
+  const branch = road([
+    [120.001, 30.000009],
+    [120.001, 30.001],
+  ]);
+  const trace = ride("a", [
+    [120, 30],
+    [120.001, 30],
+    [120.001, 30.001],
+  ]);
+  const result = matchRoads(
+    [trace, { ...trace, id: "b" }],
+    [road(), branch, branch],
+  );
+  expect(componentCount(result)).toBe(1);
+  expect(result.features.every((f) => f.properties.count === 2)).toBe(true);
+  expect(result.features.flatMap((f) => f.geometry.coordinates)).toContainEqual(
+    [120.001, 30.001],
+  );
+});
+
+it("does not repair grade-separated junctions or gaps beyond tile precision", () => {
+  const trace = ride("a", [
+    ...Array.from({ length: 11 }, (_, i) => [120 + i * 0.0001, 30]),
+    ...Array.from({ length: 10 }, (_, i) => [120.001, 30 + (i + 1) * 0.0001]),
+  ]);
+  const bridge = road([
+    [120.001, 30.000009],
+    [120.001, 30.001],
+  ]);
+  bridge.properties = { class: "minor", layer: 1, brunnel: "bridge" };
+  for (const branch of [
+    bridge,
+    road([
+      [120.001, 30.00004],
+      [120.001, 30.001],
+    ]),
+  ]) {
+    const result = matchRoads([trace], [road(), branch]);
+    expect(componentCount(result)).toBe(2);
+  }
+});
+
+it("does not pull nearby parallel roads together", () => {
+  const other = road([
+    [120.0004, 30.000009],
+    [120.0015, 30.000009],
+  ]);
+  const result = matchRoads([ride("a")], [road(), other]);
+  for (const f of result.features)
+    expect(
+      new Set(f.geometry.coordinates.map((p) => p[1].toFixed(6))).size,
+    ).toBe(1);
+});
 it("snaps GPS to actual roads, counts reverse rides, and deduplicates tiles and repeated passes", () => {
   const first = ride("a", [
     [120, 30.00005],

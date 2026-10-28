@@ -8,6 +8,7 @@ import {
 } from "maplibre-gl";
 import { LocateFixed, Plus, Minus } from "lucide-react";
 import type { Ride } from "./types";
+import { readableDarkStyle } from "./mapTheme";
 import { useRoadOverlay, ROAD_LAYER, type RoadMode } from "./useRoadOverlay";
 import {
   HIT_LAYER,
@@ -38,14 +39,14 @@ export default function RideMap({
 }) {
   const element = useRef<HTMLDivElement>(null);
   const map = useRef<VectorMap | null>(null);
-  const latest = useRef({ rides, selected, onSelect });
-  latest.current = { rides, selected, onSelect };
   const [error, setError] = useState("");
   const [fatal, setFatal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [retry, setRetry] = useState(0);
   const [roadMode, setRoadMode] = useState<RoadMode>("heat");
   const displayMode = selected ? "gps" : roadMode;
+  const latest = useRef({ rides, selected, onSelect, displayMode });
+  latest.current = { rides, selected, onSelect, displayMode };
 
   function fit(all = false) {
     const current = latest.current;
@@ -67,6 +68,7 @@ export default function RideMap({
           localMapStyle(dark),
           latest.current.rides,
           latest.current.selected,
+          latest.current.displayMode,
         ),
         center: [120.15, 30.25],
         zoom: 11,
@@ -182,7 +184,12 @@ export default function RideMap({
           throw new Error("Invalid map style");
         if (!active) return;
         m.setStyle(
-          withRides(style, latest.current.rides, latest.current.selected),
+          withRides(
+            dark ? readableDarkStyle(style) : style,
+            latest.current.rides,
+            latest.current.selected,
+            latest.current.displayMode,
+          ),
           { diff: false },
         );
       } catch {
@@ -193,6 +200,7 @@ export default function RideMap({
             localMapStyle(dark),
             latest.current.rides,
             latest.current.selected,
+            latest.current.displayMode,
           ),
           { diff: false },
         );
@@ -272,37 +280,37 @@ export default function RideMap({
           <LocateFixed size={18} />
         </button>
       </div>
-      {(error || loading) && (
-        <div className="tile-warning" role="status">
-          {error || "正在加载矢量底图…"}
-          {error && !fatal && (
-            <button className="subtle" onClick={() => setRetry((n) => n + 1)}>
-              重试底图
-            </button>
-          )}
-        </div>
-      )}
-      <div className="map-legend">
-        {displayMode === "heat" ? (
-          <>
-            1 <i className="heat-scale" /> 10+ 条重合记录
-          </>
-        ) : (
-          <>
-            <i />
-            {selected ? "所选路线" : "原始 GPS 轨迹"}
-          </>
-        )}
-        {displayMode !== "gps" && (
-          <small role="status">
-            {roadStatus.status}
-            {roadStatus.failed && (
-              <button className="subtle" onClick={roadStatus.retry}>
-                重试道路
+      <div className="map-overlays">
+        {(error || loading) && (
+          <div className="tile-warning" role="status">
+            {error || "正在加载矢量底图…"}
+            {error && !fatal && (
+              <button className="subtle" onClick={() => setRetry((n) => n + 1)}>
+                重试底图
               </button>
             )}
-          </small>
+          </div>
         )}
+        {displayMode === "heat" && roadStatus.failed && (
+          <div className="tile-warning" role="status">
+            {roadStatus.status}
+            <button className="subtle" onClick={roadStatus.retry}>
+              重试道路
+            </button>
+          </div>
+        )}
+        <div className="map-legend">
+          {displayMode === "heat" ? (
+            <>
+              1 <i className="heat-scale" /> 10+
+            </>
+          ) : (
+            <>
+              <i />
+              {selected ? "所选路线" : "原始 GPS 轨迹"}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

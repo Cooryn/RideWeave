@@ -1,6 +1,7 @@
 import type { FeatureCollection, MultiLineString } from "geojson";
 import type { StyleSpecification, LayerSpecification } from "maplibre-gl";
 import type { Ride } from "./types";
+import { DARK_MAP_BACKGROUND } from "./mapTheme";
 
 export const RIDES_SOURCE = "rideweave-rides";
 export const ROUTES_LAYER = "rideweave-routes";
@@ -63,14 +64,22 @@ export function selectionFilter(
   return ["==", ["get", "rideId"], id ?? ""];
 }
 
-export function routeLayers(selected: string | null): LayerSpecification[] {
+export function routeLayers(
+  selected: string | null,
+  mode: "gps" | "heat" = "gps",
+): LayerSpecification[] {
   return [
     {
       id: ROUTES_LAYER,
       type: "line",
       source: RIDES_SOURCE,
       layout: { "line-cap": "round", "line-join": "round" },
-      paint: { "line-color": "#169b72", "line-width": 3, "line-opacity": 0.8 },
+      paint: {
+        "line-color": "#169b72",
+        "line-width": 3,
+        "line-opacity": mode === "heat" || selected ? 0 : 0.8,
+        "line-opacity-transition": { duration: 0, delay: 0 },
+      },
     },
     {
       id: SELECTED_LAYER,
@@ -84,6 +93,8 @@ export function routeLayers(selected: string | null): LayerSpecification[] {
       id: HIT_LAYER,
       type: "line",
       source: RIDES_SOURCE,
+      layout: { visibility: mode === "heat" && !selected ? "none" : "visible" },
+      ...(selected ? { filter: selectionFilter(selected) } : {}),
       paint: { "line-color": "#169b72", "line-width": 16, "line-opacity": 0 },
     },
   ];
@@ -98,7 +109,7 @@ export function localMapStyle(dark: boolean): StyleSpecification {
       {
         id: "background",
         type: "background",
-        paint: { "background-color": dark ? "#18201f" : "#edf2ef" },
+        paint: { "background-color": dark ? DARK_MAP_BACKGROUND : "#edf2ef" },
       },
     ],
   };
@@ -108,6 +119,7 @@ export function withRides(
   style: StyleSpecification,
   rides: Ride[],
   selected: string | null,
+  mode: "gps" | "heat" = "gps",
 ): StyleSpecification {
   return {
     ...style,
@@ -115,6 +127,6 @@ export function withRides(
       ...style.sources,
       [RIDES_SOURCE]: { type: "geojson", data: ridesGeoJSON(rides) },
     },
-    layers: [...style.layers, ...routeLayers(selected)],
+    layers: [...style.layers, ...routeLayers(selected, mode)],
   };
 }

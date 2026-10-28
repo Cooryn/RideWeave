@@ -336,11 +336,14 @@ h1 {
   z-index: 0;
 }
 .map-label,
+.map-controls {
+  position: absolute;
+  z-index: 400;
+}
+.map-label,
 .map-controls,
 .map-legend,
 .tile-warning {
-  position: absolute;
-  z-index: 400;
   background: var(--surface);
   box-shadow: 0 3px 12px #17392b14;
   border: 1px solid var(--border);
@@ -366,9 +369,23 @@ h1 {
   padding: 8px;
   border-radius: 3px;
 }
-.map-legend {
+.map-overlays {
+  position: absolute;
+  z-index: 400;
   bottom: 29px;
   left: 17px;
+  right: 55px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  pointer-events: none;
+}
+.map-overlays > * {
+  max-width: 100%;
+  pointer-events: auto;
+}
+.map-legend {
   padding: 10px;
   font-size: 10px;
   display: flex;
@@ -376,6 +393,7 @@ h1 {
   gap: 8px;
 }
 .map-legend i {
+  flex-shrink: 0;
   width: 20px;
   height: 3px;
   background: #169b72;
@@ -385,9 +403,6 @@ h1 {
   margin-left: 8px;
 }
 .tile-warning {
-  bottom: 70px;
-  left: 17px;
-  right: 55px;
   font-size: 11px;
   padding: 9px;
   color: #966c26;
@@ -1383,6 +1398,4 @@ body {
 }
 .road-mode button { font-size: 11px; padding: 7px 10px; border-radius: 7px; }
 .road-mode button[aria-pressed="true"] { background: #169b72; color: white; }
-.map-legend { flex-wrap: wrap; max-width: calc(100% - 80px); }
-.map-legend small { flex-basis: 100%; color: var(--muted); }
 .map-legend i.heat-scale { width: 120px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #2864e6, #20c9dc, #47d58a, #f5d64a, #fa8738, #e94055); }

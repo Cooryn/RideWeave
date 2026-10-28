@@ -676,7 +676,7 @@ export default function App() {
               </p>
 
               <h2>关于 RideWeave</h2>
-              <p>RideWeave 0.2.0</p>
+              <p>RideWeave 0.2.1</p>
             </section>
           )}
         </div>
