@@ -1,26 +1,73 @@
 import type { FeatureCollection, MultiLineString } from "geojson";
 import type { StyleSpecification, LayerSpecification } from "maplibre-gl";
 import type { Ride } from "./types";
-import { DARK_MAP_BACKGROUND } from "./mapTheme";
+import { DARK_MAP_BACKGROUND, LIGHT_MAP_BACKGROUND } from "./mapTheme";
+import { trackContinuity } from "./trackGaps";
+import type { PauseLinks } from "./roadMatching";
+import {
+  ROUTE_COLOR,
+  SELECTED_ROUTE_COLOR,
+  ROUTE_CASING_COLOR,
+  roadLineWidth,
+} from "./heatData";
 
 export const RIDES_SOURCE = "rideweave-rides";
 export const ROUTES_LAYER = "rideweave-routes";
 export const SELECTED_LAYER = "rideweave-selected";
+export const ROUTES_CASING_LAYER = "rideweave-routes-casing";
+export const SELECTED_CASING_LAYER = "rideweave-selected-casing";
 export const HIT_LAYER = "rideweave-hit";
-export const MAP_STYLES = {
-  light: "https://tiles.openfreemap.org/styles/liberty",
-  dark: "https://tiles.openfreemap.org/styles/dark",
-};
+// Both themes share the same layers, sources and road definitions. Theme
+// changes only recolor this template; ride overlays keep their own palette.
+export const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 
 export function ridesGeoJSON(
   rides: Ride[],
+  pauseLinks?: PauseLinks,
 ): FeatureCollection<MultiLineString, { rideId: string }> {
   return {
     type: "FeatureCollection",
     features: rides.flatMap((ride) => {
-      const coordinates = ride.segments
-        .filter((segment) => segment.length >= 2)
-        .map((segment) => segment.map((point) => [point.lon, point.lat]));
+      const { gaps } = trackContinuity(ride.segments);
+      const breaks = new Set(gaps.map((g) => g.after[0]));
+      const coordinates: number[][][] = [];
+      for (const segment of ride.segments) {
+        let line: number[][] = [];
+        const finish = () => {
+          if (line.length >= 2) coordinates.push(line);
+          line = [];
+        };
+        for (const point of segment) {
+          if (
+            !Number.isFinite(point.lon + point.lat) ||
+            Math.abs(point.lon) > 180 ||
+            Math.abs(point.lat) > 90
+          ) {
+            finish();
+            continue;
+          }
+          if (breaks.has(point)) finish();
+          line.push([point.lon, point.lat]);
+        }
+        finish();
+      }
+      const links = (pauseLinks?.features ?? []).filter(
+        (f) => f.properties.rideId === ride.id,
+      );
+      for (const gap of gaps) {
+        const a = gap.before.at(-1)!,
+          b = gap.after[0],
+          start = [a.lon, a.lat],
+          end = [b.lon, b.lat];
+        const near = (p: number[], q: number[]) =>
+          Math.hypot(p[0] - q[0], p[1] - q[1]) < 1e-8;
+        const link = links.find(
+          (f) =>
+            near(f.geometry.coordinates[0], start) &&
+            near(f.geometry.coordinates.at(-1)!, end),
+        );
+        coordinates.push(link?.geometry.coordinates ?? [start, end]);
+      }
       return coordinates.length
         ? [
             {
@@ -66,18 +113,44 @@ export function selectionFilter(
 
 export function routeLayers(
   selected: string | null,
-  mode: "gps" | "heat" = "gps",
+  mode: "gps" | "route" | "heat" = "route",
 ): LayerSpecification[] {
+  const raw = mode !== "heat";
   return [
+    {
+      id: ROUTES_CASING_LAYER,
+      type: "line",
+      source: RIDES_SOURCE,
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": ROUTE_CASING_COLOR,
+        "line-width": roadLineWidth(2),
+        "line-opacity": raw && !selected ? 1 : 0,
+        "line-opacity-transition": { duration: 0, delay: 0 },
+      },
+    },
     {
       id: ROUTES_LAYER,
       type: "line",
       source: RIDES_SOURCE,
       layout: { "line-cap": "round", "line-join": "round" },
       paint: {
-        "line-color": "#169b72",
-        "line-width": 3,
-        "line-opacity": mode === "heat" || selected ? 0 : 0.8,
+        "line-color": ROUTE_COLOR,
+        "line-width": roadLineWidth(),
+        "line-opacity": raw && !selected ? 1 : 0,
+        "line-opacity-transition": { duration: 0, delay: 0 },
+      },
+    },
+    {
+      id: SELECTED_CASING_LAYER,
+      type: "line",
+      source: RIDES_SOURCE,
+      filter: selectionFilter(selected),
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": ROUTE_CASING_COLOR,
+        "line-width": 8,
+        "line-opacity": raw ? 1 : 0,
         "line-opacity-transition": { duration: 0, delay: 0 },
       },
     },
@@ -87,15 +160,20 @@ export function routeLayers(
       source: RIDES_SOURCE,
       filter: selectionFilter(selected),
       layout: { "line-cap": "round", "line-join": "round" },
-      paint: { "line-color": "#66e8a8", "line-width": 6, "line-opacity": 1 },
+      paint: {
+        "line-color": SELECTED_ROUTE_COLOR,
+        "line-width": 6,
+        "line-opacity": raw ? 1 : 0,
+        "line-opacity-transition": { duration: 0, delay: 0 },
+      },
     },
     {
       id: HIT_LAYER,
       type: "line",
       source: RIDES_SOURCE,
-      layout: { visibility: mode === "heat" && !selected ? "none" : "visible" },
+      layout: { visibility: raw ? "visible" : "none" },
       ...(selected ? { filter: selectionFilter(selected) } : {}),
-      paint: { "line-color": "#169b72", "line-width": 16, "line-opacity": 0 },
+      paint: { "line-color": ROUTE_COLOR, "line-width": 16, "line-opacity": 0 },
     },
   ];
 }
@@ -109,7 +187,9 @@ export function localMapStyle(dark: boolean): StyleSpecification {
       {
         id: "background",
         type: "background",
-        paint: { "background-color": dark ? DARK_MAP_BACKGROUND : "#edf2ef" },
+        paint: {
+          "background-color": dark ? DARK_MAP_BACKGROUND : LIGHT_MAP_BACKGROUND,
+        },
       },
     ],
   };
@@ -119,13 +199,17 @@ export function withRides(
   style: StyleSpecification,
   rides: Ride[],
   selected: string | null,
-  mode: "gps" | "heat" = "gps",
+  mode: "gps" | "route" | "heat" = "route",
 ): StyleSpecification {
   return {
     ...style,
     sources: {
       ...style.sources,
-      [RIDES_SOURCE]: { type: "geojson", data: ridesGeoJSON(rides) },
+      [RIDES_SOURCE]: {
+        type: "geojson",
+        data: ridesGeoJSON(rides),
+        tolerance: 0,
+      },
     },
     layers: [...style.layers, ...routeLayers(selected, mode)],
   };

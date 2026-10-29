@@ -24,13 +24,25 @@ vi.mock("../src/Map", () => ({
   default: ({
     rides,
     selected,
+    roadMode,
+    onRoadModeChange,
   }: {
     rides: Ride[];
     selected: string | null;
+    roadMode: "route" | "heat";
+    onRoadModeChange: (mode: "route" | "heat") => void;
   }) => (
-    <div data-testid="map" data-selected={selected ?? ""}>
-      {rides.map((r) => r.name).join(",")}
-    </div>
+    <>
+      <div
+        data-testid="map"
+        data-selected={selected ?? ""}
+        data-mode={roadMode}
+      >
+        {rides.map((r) => r.name).join(",")}
+      </div>
+      <button onClick={() => onRoadModeChange("route")}>骑行路线</button>
+      <button onClick={() => onRoadModeChange("heat")}>骑行热区</button>
+    </>
   ),
 }));
 const windowApi = vi.hoisted(() => ({
@@ -135,6 +147,29 @@ const click = async (text: string) => {
 };
 const raw =
   '<gpx><trk><name>测试路线</name><trkseg><trkpt lat="30" lon="120"><time>2026-10-01T00:00:00Z</time></trkpt><trkpt lat="30.01" lon="120.01"><time>2026-10-01T01:00:00Z</time></trkpt></trkseg></trk></gpx>';
+it("preserves the chosen map display mode through every sidebar page and theme changes", async () => {
+  const mode = () =>
+    container.querySelector('[data-testid="map"]')?.getAttribute("data-mode");
+  expect(mode()).toBe("heat");
+  for (const choice of ["骑行路线", "骑行热区"]) {
+    await click(choice);
+    const expected = choice === "骑行路线" ? "route" : "heat";
+    for (const page of ["历史记录", "数据统计", "设置"]) {
+      await click(page);
+      expect(container.querySelector('[data-testid="map"]')).toBeNull();
+      await click("骑行地图");
+      expect(mode()).toBe(expected);
+    }
+    await click("设置");
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(".header-actions > button")!
+        .click(),
+    );
+    await click("骑行地图");
+    expect(mode()).toBe(expected);
+  }
+});
 it("imports a mixed batch, reports duplicates/errors, hides routes and deletes with updated stats", async () => {
   const file = (name: string, content: string) => ({
     name,
@@ -172,7 +207,10 @@ it("imports a mixed batch, reports duplicates/errors, hides routes and deletes w
   await act(async () =>
     container.querySelector<HTMLButtonElement>(".ride-main")!.click(),
   );
-  expect(container.textContent).toContain(
+  expect(
+    container.querySelectorAll(".detail-metrics strong")[1].textContent,
+  ).toBe("1h 0min");
+  expect(container.textContent).not.toContain(
     "经过时间含停留，缺少完整时间时不计算速度。",
   );
   await click("删除");

@@ -23,6 +23,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import RideMap from "./Map";
+import type { RoadMode } from "./useRoadOverlay";
 import WindowControls from "./WindowControls";
 import type { Ride } from "./types";
 import { parseGpx } from "./gpx";
@@ -37,6 +38,7 @@ import {
 type Page = "map" | "history" | "stats" | "settings";
 export default function App() {
   const [page, setPage] = useState<Page>("map"),
+    [roadMode, setRoadMode] = useState<RoadMode>("heat"),
     [rides, setRides] = useState<Ride[]>([]),
     [selected, setSelected] = useState<string | null>(null),
     [hidden, setHidden] = useState<Set<string>>(new Set()),
@@ -427,6 +429,8 @@ export default function App() {
                   </button>
                 </div>
                 <RideMap
+                  roadMode={roadMode}
+                  onRoadModeChange={setRoadMode}
                   rides={visible}
                   selected={selected}
                   onSelect={select}
@@ -516,12 +520,20 @@ export default function App() {
                         <div>
                           <small>经过时间</small>
                           <strong>
-                            {number(
-                              current.duration === null
-                                ? null
-                                : current.duration / 3600,
-                            )}{" "}
-                            <em>{current.duration !== null ? "h" : ""}</em>
+                            {current.duration === null ? (
+                              "暂无数据"
+                            ) : (
+                              <>
+                                {current.duration >= 3600 && (
+                                  <>
+                                    {Math.floor(current.duration / 3600)}
+                                    <em>h</em>{" "}
+                                  </>
+                                )}
+                                {Math.floor((current.duration % 3600) / 60)}
+                                <em>min</em>
+                              </>
+                            )}
                           </strong>
                         </div>
                         <div>
@@ -540,9 +552,6 @@ export default function App() {
                           <strong>{current.segments.flat().length}</strong>
                         </div>
                       </div>
-                      <p className="calculation">
-                        经过时间含停留，缺少完整时间时不计算速度。
-                      </p>
                       <p className="filename">原始文件：{current.filename}</p>
                       <div className="detail-actions">
                         <button

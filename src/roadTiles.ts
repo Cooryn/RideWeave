@@ -1,8 +1,9 @@
-import { VectorTile } from "@mapbox/vector-tile";
-import Pbf from "pbf";
 import type { Feature, Geometry } from "geojson";
 import type { Ride } from "./types";
 import { ROAD_CLASSES } from "./roadMatching";
+import { roadTileLines } from "./roadNetworkTiles";
+import { singleRoadNetwork } from "./roadNetwork";
+import { trackContinuity, pauseCorridor } from "./trackGaps";
 
 const ZOOM = 14,
   N = 2 ** ZOOM,
@@ -14,7 +15,7 @@ const tilePoint = (lon: number, lat: number) => [
 ];
 export function roadTilePlan(rides: Ride[]) {
   const tiles = new Map<string, { x: number; y: number }>();
-  const add = (lon: number, lat: number) => {
+  const add = (lon: number, lat: number, width = 40) => {
     if (
       !Number.isFinite(lon + lat) ||
       Math.abs(lat) > 85 ||
@@ -23,7 +24,7 @@ export function roadTilePlan(rides: Ride[]) {
       return;
     const [x, y] = tilePoint(lon, lat);
     // Include a 40 m corridor so roads and junctions across tile boundaries are available.
-    const margin = 40 / ((40030228 / N) * Math.cos((lat * Math.PI) / 180));
+    const margin = width / ((40030228 / N) * Math.cos((lat * Math.PI) / 180));
     for (let tx = Math.floor(x - margin); tx <= Math.floor(x + margin); tx++)
       for (
         let ty = Math.floor(y - margin);
@@ -35,8 +36,9 @@ export function roadTilePlan(rides: Ride[]) {
         tiles.set(`${wrappedX}/${ty}`, { x: wrappedX, y: ty });
       }
   };
-  for (const ride of rides)
-    for (const segment of ride.segments)
+  for (const ride of rides) {
+    const plan = trackContinuity(ride.segments);
+    for (const segment of plan.chunks)
       for (let i = 1; i < segment.length; i++) {
         const a = segment[i - 1],
           b = segment[i];
@@ -53,6 +55,19 @@ export function roadTilePlan(rides: Ride[]) {
             a.lat + ((b.lat - a.lat) * j) / steps,
           );
       }
+    for (const gap of plan.gaps) {
+      const a = gap.before.at(-1)!,
+        b = gap.after[0],
+        steps = Math.max(1, Math.ceil(gap.distance / 40));
+      const width = pauseCorridor(gap.distance);
+      for (let i = 0; i <= steps; i++)
+        add(
+          a.lon + ((b.lon - a.lon) * i) / steps,
+          a.lat + ((b.lat - a.lat) * i) / steps,
+          width,
+        );
+    }
+  }
   return {
     tiles: [...tiles.values()].slice(0, MAX_TILES),
     omitted: Math.max(0, tiles.size - MAX_TILES),
@@ -106,7 +121,7 @@ export async function loadRoadTiles(rides: Ride[], signal: AbortSignal) {
       if (found) roads.push(...found);
       else failed++;
     }
-    return { roads, failed, omitted: plan.omitted };
+    return { roads: singleRoadNetwork(roads), failed, omitted: plan.omitted };
   }
   let cursor = 0,
     failed = 0;
@@ -122,16 +137,12 @@ export async function loadRoadTiles(rides: Ride[], signal: AbortSignal) {
               .replace("{z}", String(ZOOM))
               .replace("{x}", String(tile.x))
               .replace("{y}", String(tile.y));
-            const decoded = new VectorTile(
-              new Pbf(new Uint8Array(await request(url, signal))),
-            );
-            features = [];
-            const layer = decoded.layers.transportation;
-            for (let i = 0; i < (layer?.length ?? 0); i++) {
-              const f = layer.feature(i);
-              if (f.type === 2 && ROAD_CLASSES.has(String(f.properties.class)))
-                features.push(f.toGeoJSON(tile.x, tile.y, ZOOM));
-            }
+            features = roadTileLines(
+              await request(url, signal),
+              tile.x,
+              tile.y,
+              ZOOM,
+            ).filter((f) => ROAD_CLASSES.has(String(f.properties?.class)));
             cache.set(key, features);
             if (cache.size > 384) cache.delete(cache.keys().next().value!);
           }
@@ -143,5 +154,5 @@ export async function loadRoadTiles(rides: Ride[], signal: AbortSignal) {
     }),
   );
   if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-  return { roads, failed, omitted: plan.omitted };
+  return { roads: singleRoadNetwork(roads), failed, omitted: plan.omitted };
 }

@@ -2,23 +2,28 @@ import { useEffect, useRef, useState } from "react";
 import {
   Map as VectorMap,
   AttributionControl,
-  type GeoJSONSource,
   type MapMouseEvent,
   type StyleSpecification,
 } from "maplibre-gl";
 import { LocateFixed, Plus, Minus } from "lucide-react";
 import type { Ride } from "./types";
-import { readableDarkStyle } from "./mapTheme";
+import { drivingRoadStyle } from "./roadStyle";
 import { useRoadOverlay, ROAD_LAYER, type RoadMode } from "./useRoadOverlay";
 import {
+  ROUTE_COLOR,
+  SELECTED_ROUTE_COLOR,
+  ROUTE_CASING_COLOR,
+  ROAD_CASING_LAYER,
+} from "./heatData";
+import {
   HIT_LAYER,
-  MAP_STYLES,
-  RIDES_SOURCE,
+  MAP_STYLE,
   SELECTED_LAYER,
+  ROUTES_LAYER,
+  ROUTES_CASING_LAYER,
+  SELECTED_CASING_LAYER,
   localMapStyle,
   rideBounds,
-  ridesGeoJSON,
-  selectionFilter,
   withRides,
 } from "./mapData";
 
@@ -27,6 +32,8 @@ export default function RideMap({
   selected,
   onSelect,
   onClearSelection,
+  roadMode,
+  onRoadModeChange,
   fitKey,
   dark = false,
 }: {
@@ -34,6 +41,8 @@ export default function RideMap({
   selected: string | null;
   onSelect: (id: string) => void;
   onClearSelection?: () => void;
+  roadMode: RoadMode;
+  onRoadModeChange: (mode: RoadMode) => void;
   fitKey: number;
   dark?: boolean;
 }) {
@@ -43,8 +52,7 @@ export default function RideMap({
   const [fatal, setFatal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [retry, setRetry] = useState(0);
-  const [roadMode, setRoadMode] = useState<RoadMode>("heat");
-  const displayMode = selected ? "gps" : roadMode;
+  const displayMode = selected ? "route" : roadMode;
   const latest = useRef({ rides, selected, onSelect, displayMode });
   latest.current = { rides, selected, onSelect, displayMode };
 
@@ -95,19 +103,15 @@ export default function RideMap({
       }),
       "bottom-right",
     );
-    const sync = () => {
-      const current = latest.current;
-      (m.getSource(RIDES_SOURCE) as GeoJSONSource | undefined)?.setData(
-        ridesGeoJSON(current.rides),
-      );
-      if (m.getLayer(SELECTED_LAYER))
-        m.setFilter(SELECTED_LAYER, selectionFilter(current.selected));
-    };
-    m.on("style.load", sync);
+    const interactiveLayers = () =>
+      (latest.current.displayMode === "heat"
+        ? [ROAD_LAYER, ROAD_CASING_LAYER]
+        : latest.current.selected
+          ? [SELECTED_LAYER, SELECTED_CASING_LAYER, HIT_LAYER]
+          : [ROUTES_LAYER, ROUTES_CASING_LAYER, HIT_LAYER]
+      ).filter((id) => m.getLayer(id));
     m.on("click", (event: MapMouseEvent) => {
-      const layers = [ROAD_LAYER, SELECTED_LAYER, HIT_LAYER].filter((id) =>
-        m.getLayer(id),
-      );
+      const layers = interactiveLayers();
       if (!layers.length) return;
       const features = m.queryRenderedFeatures(event.point, { layers });
       const feature =
@@ -132,7 +136,7 @@ export default function RideMap({
         latest.current.onSelect(id);
     });
     m.on("mousemove", (event: MapMouseEvent) => {
-      const layers = [ROAD_LAYER, HIT_LAYER].filter((id) => m.getLayer(id));
+      const layers = interactiveLayers();
       m.getCanvas().style.cursor =
         layers.length && m.queryRenderedFeatures(event.point, { layers }).length
           ? "pointer"
@@ -170,10 +174,7 @@ export default function RideMap({
     const timeout = window.setTimeout(() => controller.abort(), 20000);
     void (async () => {
       try {
-        const response = await fetch(
-          dark ? MAP_STYLES.dark : MAP_STYLES.light,
-          { signal: controller.signal },
-        );
+        const response = await fetch(MAP_STYLE, { signal: controller.signal });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const style = (await response.json()) as StyleSpecification;
         if (
@@ -185,7 +186,7 @@ export default function RideMap({
         if (!active) return;
         m.setStyle(
           withRides(
-            dark ? readableDarkStyle(style) : style,
+            drivingRoadStyle(style, dark),
             latest.current.rides,
             latest.current.selected,
             latest.current.displayMode,
@@ -194,7 +195,7 @@ export default function RideMap({
         );
       } catch {
         if (!active) return;
-        setError("在线底图暂时无法加载，已切换为本地轨迹视图。联网后可重试。");
+        setError("在线底图暂时无法加载，本地骑行数据仍已保留。联网后可重试。");
         m.setStyle(
           withRides(
             localMapStyle(dark),
@@ -217,16 +218,6 @@ export default function RideMap({
   }, [dark, retry]);
 
   useEffect(() => {
-    const m = map.current;
-    if (m) {
-      (m.getSource(RIDES_SOURCE) as GeoJSONSource | undefined)?.setData(
-        ridesGeoJSON(rides),
-      );
-      if (m.getLayer(SELECTED_LAYER))
-        m.setFilter(SELECTED_LAYER, selectionFilter(selected));
-    }
-  }, [rides, selected]);
-  useEffect(() => {
     fit();
   }, [rides, selected, fitKey]);
   const roadStatus = useRoadOverlay(map, rides, selected, displayMode);
@@ -241,7 +232,7 @@ export default function RideMap({
       <div className="road-mode" role="group" aria-label="轨迹显示方式">
         {(
           [
-            ["gps", "原始轨迹"],
+            ["route", "骑行路线"],
             ["heat", "骑行热区"],
           ] as const
         ).map(([mode, label]) => (
@@ -249,7 +240,7 @@ export default function RideMap({
             key={mode}
             aria-pressed={displayMode === mode}
             onClick={() => {
-              setRoadMode(mode);
+              onRoadModeChange(mode);
               onClearSelection?.();
             }}
           >
@@ -291,23 +282,30 @@ export default function RideMap({
             )}
           </div>
         )}
-        {displayMode === "heat" && roadStatus.failed && (
+        {(roadStatus.failed || roadStatus.loading) && (
           <div className="tile-warning" role="status">
             {roadStatus.status}
-            <button className="subtle" onClick={roadStatus.retry}>
-              重试道路
-            </button>
           </div>
         )}
-        <div className="map-legend">
+        <div
+          className="map-legend"
+          title={
+            displayMode === "heat" ? "颜色表示道路累计经过次数" : undefined
+          }
+        >
           {displayMode === "heat" ? (
             <>
               1 <i className="heat-scale" /> 10+
             </>
           ) : (
             <>
-              <i />
-              {selected ? "所选路线" : "原始 GPS 轨迹"}
+              <i
+                style={{
+                  background: selected ? SELECTED_ROUTE_COLOR : ROUTE_COLOR,
+                  boxShadow: `0 0 0 1px ${ROUTE_CASING_COLOR}`,
+                }}
+              />
+              {selected ? "所选骑行路线" : "骑行路线"}
             </>
           )}
         </div>

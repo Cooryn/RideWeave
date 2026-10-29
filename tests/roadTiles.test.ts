@@ -1,5 +1,6 @@
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import Pbf from "pbf";
+import { fromVectorTileJs, GeoJSONWrapper } from "@maplibre/vt-pbf";
 import type { Ride } from "../src/types";
 let api: typeof import("../src/roadTiles");
 const ride = (
@@ -140,4 +141,114 @@ it("aborts stale work without returning partial results", async () => {
   await expect(
     api.loadRoadTiles([ride()], controller.signal),
   ).rejects.toThrow();
+});
+
+it("loads extra corridor tiles for plausible pauses but leaves unverified jumps unfilled", () => {
+  const trace = ride();
+  trace.segments = [
+    [
+      [120, -0.0009],
+      [120.0002, -0.0009],
+    ],
+    [
+      [120.0038, -0.0009],
+      [120.0042, -0.0009],
+    ],
+  ].map((line, part) =>
+    line.map(([lon, lat], i) => ({
+      lon,
+      lat,
+      elevation: null,
+      time: new Date(
+        Date.UTC(2026, 9, 29) + (part * 120 + i * 10) * 1000,
+      ).toISOString(),
+    })),
+  );
+  const before = JSON.stringify(trace);
+  expect(api.roadTilePlan([trace]).tiles.some((t) => t.y === 8191)).toBe(true);
+  const unknown = {
+    ...trace,
+    segments: trace.segments.map((line) =>
+      line.map((p) => ({ ...p, time: null })),
+    ),
+  };
+  expect(api.roadTilePlan([unknown]).tiles.some((t) => t.y === 8191)).toBe(
+    false,
+  );
+  expect(JSON.stringify(trace)).toBe(before);
+});
+
+it("loads a wider corridor only for long pauses supported by moving observations", () => {
+  const trace = ride();
+  trace.segments = [
+    Array.from({ length: 16 }, (_, i) => [i * 6, i]),
+    Array.from({ length: 16 }, (_, i) => [1770 + i * 3, 1285 + i]),
+  ].map((line) =>
+    line.map(([x, t]) => ({
+      lon: 120 + x / 111195,
+      lat: -0.002,
+      elevation: null,
+      time: new Date(Date.UTC(2026, 0, 1) + t * 1000).toISOString(),
+    })),
+  );
+  const moving = api.roadTilePlan([trace]);
+  expect(moving.tiles.some((t) => t.y === 8191)).toBe(true);
+  trace.segments[0] = trace.segments[0].map((p) => ({ ...p, lon: 120 }));
+  const startup = api.roadTilePlan([trace]);
+  expect(startup.tiles.some((t) => t.y === 8191)).toBe(false);
+  expect(startup.tiles.length).toBeLessThan(moving.tiles.length);
+});
+
+it("builds one centreline when opposite carriageways arrive in neighbouring tile buffers", async () => {
+  vi.mocked(fetch).mockImplementation(
+    async (url) =>
+      ({
+        ok: true,
+        arrayBuffer: async () => {
+          if (String(url).endsWith("/planet")) return metadata;
+          const north = String(url).endsWith("/8191.pbf");
+          const layer = new GeoJSONWrapper(
+            [
+              {
+                id: north ? 1 : 2,
+                type: 2,
+                tags: { class: "primary", oneway: 1 },
+                geometry: [
+                  north
+                    ? [
+                        [-100, 4090],
+                        [4200, 4090],
+                      ]
+                    : [
+                        [4200, 6],
+                        [-100, 6],
+                      ],
+                ],
+              },
+            ],
+            { extent: 4096, version: 2 },
+          );
+          layer.name = "transportation";
+          return fromVectorTileJs({ layers: { transportation: layer } }).slice()
+            .buffer as ArrayBuffer;
+        },
+      }) as Response,
+  );
+  const result = await api.loadRoadTiles(
+    [
+      ride([
+        [120, 0],
+        [120.001, 0],
+      ]),
+    ],
+    new AbortController().signal,
+  );
+  expect(result.failed).toBe(0);
+  expect(result.roads).toHaveLength(1);
+  expect(result.roads[0].properties?.oneway).toBe(0);
+  if (result.roads[0].geometry.type !== "LineString")
+    throw Error("Invalid fixture");
+  expect(
+    result.roads[0].geometry.coordinates.every((p) => Math.abs(p[1]) < 1e-6),
+  ).toBe(true);
 });

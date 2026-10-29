@@ -7,6 +7,25 @@ import type { RoadMatches, RoadProperties } from "./roadMatching";
 
 export const ROAD_SOURCE = "rideweave-road-matches";
 export const ROAD_LAYER = "rideweave-road-colors";
+export const ROAD_CASING_LAYER = "rideweave-road-casing";
+export const ROUTE_COLOR = "#15dfff";
+export const SELECTED_ROUTE_COLOR = "#ffe164";
+export const ROUTE_CASING_COLOR = "#083449";
+export const roadLineWidth = (
+  extra = 0,
+): NonNullable<LineLayerSpecification["paint"]>["line-width"] => [
+  "interpolate",
+  ["linear"],
+  ["zoom"],
+  5,
+  1.5 + extra,
+  12,
+  3 + extra,
+  16,
+  4 + extra,
+  20,
+  5 + extra,
+];
 export type RoadHeat = FeatureCollection<
   LineString,
   RoadProperties & { strength: number }
@@ -37,7 +56,7 @@ export function roadHeat(matches: RoadMatches): RoadHeat {
     ]) {
       const k = key(p);
       if (!nodes.has(k)) nodes.set(k, []);
-      nodes.get(k)!.push(f.properties.count);
+      nodes.get(k)!.push(Math.max(1, f.properties.count));
     }
   const output: RoadHeat = { type: "FeatureCollection", features: [] };
   for (const f of matches.features) {
@@ -47,7 +66,9 @@ export function roadHeat(matches: RoadMatches): RoadHeat {
       lengths.push(lengths[i - 1] + meters(coords[i - 1], coords[i]));
     const total = lengths.at(-1)!;
     if (!total) continue;
-    const count = f.properties.count;
+    // A pause link uses the same line and minimum heat color as the rest of a
+    // ride. Its provenance and actual observation count stay in the source.
+    const count = Math.max(1, f.properties.count);
     const mean = (p: number[]) => {
       const values = nodes.get(key(p))!;
       return values.reduce((a, b) => a + b, 0) / values.length;
@@ -106,19 +127,7 @@ export function roadHeatLayer(): LineLayerSpecification {
     source: ROAD_SOURCE,
     layout: { "line-cap": "round", "line-join": "round" },
     paint: {
-      "line-width": [
-        "interpolate",
-        ["linear"],
-        ["zoom"],
-        5,
-        1.5,
-        12,
-        3,
-        16,
-        4,
-        20,
-        5,
-      ],
+      "line-width": roadLineWidth(),
       "line-blur": 0,
       "line-opacity": 1,
       "line-color": [
@@ -138,6 +147,21 @@ export function roadHeatLayer(): LineLayerSpecification {
         10,
         "#e94055",
       ],
+    },
+  };
+}
+
+export function roadRouteCasingLayer(): LineLayerSpecification {
+  return {
+    id: ROAD_CASING_LAYER,
+    type: "line",
+    source: ROAD_SOURCE,
+    layout: { "line-cap": "round", "line-join": "round", visibility: "none" },
+    paint: {
+      "line-color": ROUTE_CASING_COLOR,
+      "line-width": roadLineWidth(2),
+      "line-opacity": 1,
+      "line-blur": 0,
     },
   };
 }

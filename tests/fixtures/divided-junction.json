@@ -1,0 +1,66 @@
+{
+  "source": "OpenFreeMap public transportation tile 14/13661/6740, retrieved 2026-10-29; coordinates translated into local metres for this regression fixture.",
+  "attribution": "© OpenStreetMap contributors, ODbL; OpenFreeMap / OpenMapTiles.",
+  "features": [
+    {
+      "properties": {
+        "class": "tertiary",
+        "oneway": 1
+      },
+      "coordinates": [
+        [-7.443, -9.71],
+        [-16.225, -28.24],
+        [-9.509, -52.432],
+        [-2.456, -70]
+      ]
+    },
+    {
+      "properties": {
+        "class": "secondary",
+        "oneway": 1
+      },
+      "coordinates": [
+        [-20.747, 70],
+        [-20.358, 60.292],
+        [-11.576, 6.761],
+        [-7.443, -9.71],
+        [14.072, -70]
+      ]
+    },
+    {
+      "properties": {
+        "class": "secondary",
+        "oneway": 1
+      },
+      "coordinates": [
+        [30.767, -70],
+        [10.638, -7.651],
+        [7.022, 8.82],
+        [1.856, 51.542],
+        [1.577, 70]
+      ]
+    },
+    {
+      "properties": {
+        "class": "secondary",
+        "oneway": 1
+      },
+      "coordinates": [
+        [7.022, 8.82],
+        [-11.576, 6.761],
+        [-70, 4.125]
+      ]
+    },
+    {
+      "properties": {
+        "class": "secondary",
+        "oneway": 1
+      },
+      "coordinates": [
+        [-70, -11.999],
+        [-7.443, -9.71],
+        [10.638, -7.651]
+      ]
+    }
+  ]
+}

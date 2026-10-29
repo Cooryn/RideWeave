@@ -106,7 +106,7 @@ it("does not pull nearby parallel roads together", () => {
       new Set(f.geometry.coordinates.map((p) => p[1].toFixed(6))).size,
     ).toBe(1);
 });
-it("snaps GPS to actual roads, counts reverse rides, and deduplicates tiles and repeated passes", () => {
+it("counts each observed pass in either direction while deduplicating road tiles", () => {
   const first = ride("a", [
     [120, 30.00005],
     [120.002, 30.00005],
@@ -129,7 +129,10 @@ it("snaps GPS to actual roads, counts reverse rides, and deduplicates tiles and 
     ],
   );
   expect(result.features.length).toBeGreaterThan(0);
-  expect(result.features.every((f) => f.properties.count === 2)).toBe(true);
+  expect(result.features.every((f) => f.properties.count === 3)).toBe(true);
+  expect(
+    result.features.every((f) => f.properties.rideIds.join() === "a,b"),
+  ).toBe(true);
   expect(
     result.features.every((f) =>
       f.geometry.coordinates.every((p) => Math.abs(p[1] - 30) < 1e-9),
@@ -138,6 +141,59 @@ it("snaps GPS to actual roads, counts reverse rides, and deduplicates tiles and 
   expect(JSON.stringify([first, second])).toBe(before);
   expect(
     matchRoads([first], [road()]).features.every(
+      (f) => f.properties.count === 2,
+    ),
+  ).toBe(true);
+});
+
+it("counts a partial return and another pass only on the portions actually traversed", () => {
+  const trace = ride("a", [
+    [120, 30],
+    [120.002, 30],
+    [120.0008, 30],
+    [120.0018, 30],
+  ]);
+  const before = JSON.stringify(trace),
+    result = matchRoads([trace], [road()]);
+  const countAt = (lon: number) =>
+    result.features.find((f) => {
+      const xs = f.geometry.coordinates.map((p) => p[0]);
+      return Math.min(...xs) < lon && Math.max(...xs) > lon;
+    })?.properties.count;
+  expect(countAt(120.0004)).toBe(1);
+  expect(countAt(120.0012)).toBe(3);
+  expect(countAt(120.0019)).toBe(2);
+  expect(JSON.stringify(trace)).toBe(before);
+});
+
+it("counts repeated laps without depending on GPS sampling density or road vertex splits", () => {
+  const loop = [
+    [120, 30],
+    [120.001, 30],
+    [120.001, 30.001],
+    [120, 30.001],
+    [120, 30],
+  ];
+  const trace = ride("laps", [...loop, ...loop.slice(1), ...loop.slice(1)]);
+  for (const roads of [
+    [road(loop)],
+    loop.slice(1).map((p, i) => road([loop[i], p])),
+  ]) {
+    const result = matchRoads([trace], roads);
+    expect(result.features.length).toBeGreaterThan(0);
+    expect(
+      result.features.every(
+        (f) =>
+          f.properties.count === 3 && f.properties.rideIds.join() === "laps",
+      ),
+    ).toBe(true);
+  }
+  const dense = ride(
+    "dense",
+    Array.from({ length: 101 }, (_, i) => [120 + i * 0.00002, 30]),
+  );
+  expect(
+    matchRoads([dense], [road()]).features.every(
       (f) => f.properties.count === 1,
     ),
   ).toBe(true);

@@ -590,11 +590,6 @@ h1 {
   font-size: 10px;
   font-weight: 400;
 }
-.calculation {
-  padding: 12px;
-  background: var(--soft);
-  border-radius: 8px;
-}
 .filename {
   overflow-wrap: anywhere;
 }

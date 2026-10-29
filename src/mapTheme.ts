@@ -1,77 +1,112 @@
 import type { StyleSpecification } from "maplibre-gl";
 
-export const DARK_MAP_BACKGROUND = "#222b35";
+export const DARK_MAP_BACKGROUND = "#26312a";
+export const LIGHT_MAP_BACKGROUND = "#d9ddcf";
+export const roadPalette = (dark: boolean) =>
+  dark
+    ? {
+        background: DARK_MAP_BACKGROUND,
+        land: "#2c382e",
+        park: "#304733",
+        wood: "#293e2e",
+        water: "#284c55",
+        building: "#3d493f",
+        edge: "#eeeee4",
+        surface: "#505c53",
+        shadow: "#18241d",
+        trail: "#e5a16d",
+        label: "#e1e5d8",
+        muted: "#839482",
+      }
+    : {
+        background: LIGHT_MAP_BACKGROUND,
+        land: "#d2d8c6",
+        park: "#bdcba9",
+        wood: "#b1c29e",
+        water: "#a1bfc1",
+        building: "#c2c9b8",
+        edge: "#fffef5",
+        surface: "#7c8977",
+        shadow: "#61705b",
+        trail: "#b86a39",
+        label: "#354634",
+        muted: "#8c9e83",
+      };
 
-// Recolor the basemap before adding ride overlays; retain zoom rules and geometry.
-export function readableDarkStyle(
+/** Appearance only. Keep every map data source and its original geometry. */
+export function roadMapTheme(
   style: StyleSpecification,
+  dark: boolean,
 ): StyleSpecification {
+  const p = roadPalette(dark);
   return {
     ...style,
     layers: style.layers.map((layer) => {
+      const source =
+        "source-layer" in layer ? layer["source-layer"] : undefined;
       if (layer.type === "background")
         return {
           ...layer,
-          paint: { ...layer.paint, "background-color": DARK_MAP_BACKGROUND },
+          paint: { ...layer.paint, "background-color": p.background },
         };
-      const source =
-        "source-layer" in layer ? layer["source-layer"] : undefined;
       if (layer.type === "fill") {
         const color =
           source === "water"
-            ? "#183f58"
+            ? p.water
             : source === "building"
-              ? "#37434f"
-              : layer.id.includes("park") || layer.id.includes("wood")
-                ? "#29483f"
-                : source === "landcover"
-                  ? "#34434b"
-                  : source === "transportation"
-                    ? "#8795a1"
-                    : "#2c3641";
+              ? p.building
+              : /wood|forest/.test(layer.id)
+                ? p.wood
+                : /park|grass|garden/.test(layer.id)
+                  ? p.park
+                  : p.land;
+        const paint = {
+          ...layer.paint,
+          "fill-color": color,
+          "fill-opacity":
+            source === "building"
+              ? 0.42
+              : source === "transportation"
+                ? 0.28
+                : 1,
+        };
+        delete paint["fill-pattern"];
+        delete paint["fill-outline-color"];
+        return { ...layer, paint };
+      }
+      if (layer.type === "line" && source !== "transportation")
         return {
           ...layer,
           paint: {
             ...layer.paint,
-            "fill-color": color,
-            ...(source === "building"
-              ? { "fill-outline-color": "#526170" }
-              : {}),
+            "line-color": source === "waterway" ? p.water : p.muted,
+            "line-opacity": source === "boundary" ? 0.2 : 0.45,
           },
         };
+      if (layer.type === "symbol") {
+        if (
+          source === "poi" ||
+          source === "housenumber" ||
+          source === "transportation"
+        )
+          return { ...layer, layout: { ...layer.layout, visibility: "none" } };
+        if (layer.layout?.["text-field"])
+          return {
+            ...layer,
+            minzoom:
+              source === "transportation_name"
+                ? Math.max(14, layer.minzoom ?? 0)
+                : layer.minzoom,
+            paint: {
+              ...layer.paint,
+              "text-color": p.label,
+              "text-opacity": source === "transportation_name" ? 0.78 : 0.9,
+              "text-halo-color": p.background,
+              "text-halo-width": 1.5,
+              "text-halo-blur": 0.2,
+            },
+          };
       }
-      if (layer.type === "line") {
-        const color =
-          source === "waterway"
-            ? "#39718e"
-            : source === "boundary"
-              ? "#8793a5"
-              : layer.id.includes("casing")
-                ? "#465361"
-                : layer.id.includes("dashline")
-                  ? DARK_MAP_BACKGROUND
-                  : layer.id.includes("railway")
-                    ? "#8995a3"
-                    : layer.id.includes("motorway")
-                      ? "#b1bbc5"
-                      : layer.id.includes("major")
-                        ? "#9caab7"
-                        : layer.id.includes("path")
-                          ? "#8fa59d"
-                          : "#8393a3";
-        return { ...layer, paint: { ...layer.paint, "line-color": color } };
-      }
-      if (layer.type === "symbol" && layer.layout?.["text-field"])
-        return {
-          ...layer,
-          paint: {
-            ...layer.paint,
-            "text-color": source === "water_name" ? "#b6e0f0" : "#eef3f8",
-            "text-halo-color": DARK_MAP_BACKGROUND,
-            "text-halo-width": 1.5,
-            "text-halo-blur": 0.3,
-          },
-        };
       return layer;
     }),
   };

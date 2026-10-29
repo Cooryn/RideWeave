@@ -1,5 +1,15 @@
 import { expect, it } from "vitest";
-import { roadHeat, roadHeatLayer, roadHeatSource } from "../src/heatData";
+import {
+  roadHeat,
+  roadHeatLayer,
+  roadHeatSource,
+  roadRouteCasingLayer,
+  ROAD_SOURCE,
+} from "../src/heatData";
+import {
+  validateStyleMin,
+  createExpression,
+} from "@maplibre/maplibre-gl-style-spec";
 import { GeoJSONVT } from "@maplibre/geojson-vt";
 import type { RoadMatches } from "../src/roadMatching";
 const data: RoadMatches = {
@@ -29,6 +39,65 @@ const data: RoadMatches = {
     },
   ],
 };
+
+it("merges pause links into the same solid road layer and heat transitions while preserving actual counts", () => {
+  const matched: RoadMatches = {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        properties: { count: 3, rideIds: ["a", "b", "c"] },
+        geometry: {
+          type: "LineString",
+          coordinates: [
+            [120, 30],
+            [120.001, 30],
+          ],
+        },
+      },
+      {
+        type: "Feature",
+        properties: {
+          count: 0,
+          rideIds: ["a"],
+          inferred: true,
+          observedRideIds: [],
+          inferredRideIds: ["a"],
+        },
+        geometry: {
+          type: "LineString",
+          coordinates: [
+            [120.001, 30],
+            [120.002, 30],
+          ],
+        },
+      },
+    ],
+  };
+  const heat = roadHeat(matched);
+  expect(
+    heat.features
+      .filter((f) => !f.properties.inferred)
+      .every(
+        (f) =>
+          f.properties.count === 3 &&
+          f.properties.strength >= 2 &&
+          f.properties.strength <= 3,
+      ),
+  ).toBe(true);
+  const links = heat.features.filter((f) => f.properties.inferred);
+  expect(links.length).toBeGreaterThan(0);
+  expect(
+    links.every(
+      (f) =>
+        f.properties.count === 0 &&
+        f.properties.strength >= 1 &&
+        f.properties.strength <= 2,
+    ),
+  ).toBe(true);
+  expect(roadHeatLayer().paint?.["line-dasharray"]).toBeUndefined();
+  expect(roadHeatLayer().filter).toBeUndefined();
+});
 it("gradually transitions overlap colors only along the matched road without changing counts", () => {
   const before = JSON.stringify(data),
     result = roadHeat(data);
@@ -89,6 +158,28 @@ it("retains gradient pieces through real GeoJSON tile generation when zooming ou
     }
   }
 });
+it("keeps route casing sharp and wider at every zoom without changing the heat line style", () => {
+  const casing = roadRouteCasingLayer(),
+    heat = roadHeatLayer();
+  expect(
+    validateStyleMin({
+      version: 8,
+      sources: { [ROAD_SOURCE]: roadHeatSource(roadHeat(data)) },
+      layers: [casing, heat],
+    }),
+  ).toEqual([]);
+  expect(casing.paint?.["line-blur"]).toBe(0);
+  const outer = createExpression(casing.paint!["line-width"]),
+    inner = createExpression(heat.paint!["line-width"]);
+  if (outer.result === "error" || inner.result === "error")
+    throw Error("Invalid line width");
+  for (const zoom of [5, 10, 12, 14, 16, 19, 20])
+    expect(
+      outer.value.evaluate({ zoom }) - inner.value.evaluate({ zoom }),
+    ).toBeCloseTo(2);
+  expect(heat.paint?.["line-color"]).toContain("interpolate");
+});
+
 it("preserves road bends and renders no diffuse heatmap", () => {
   const bent: RoadMatches = {
     type: "FeatureCollection",

@@ -1,7 +1,18 @@
 import type { Feature, FeatureCollection, Geometry, LineString } from "geojson";
 import type { Ride } from "./types";
-export type RoadProperties = { count: number; rideIds: string[] };
-export type RoadMatches = FeatureCollection<LineString, RoadProperties>;
+import { trackContinuity } from "./trackGaps";
+export type RoadProperties = {
+  /** Observed traversals, including repeated passes within the same ride. */
+  count: number;
+  rideIds: string[];
+  inferred?: boolean;
+  observedRideIds?: string[];
+  inferredRideIds?: string[];
+};
+export type PauseLinks = FeatureCollection<LineString, { rideId: string }>;
+export type RoadMatches = FeatureCollection<LineString, RoadProperties> & {
+  pauseLinks?: PauseLinks;
+};
 type XY = [number, number];
 type Edge = {
   a: XY;
@@ -10,7 +21,7 @@ type Edge = {
   u: string;
   v: string;
   grade: string;
-  intervals: { lo: number; hi: number; id: string }[];
+  intervals: { lo: number; hi: number; id: string; inferred?: boolean }[];
 };
 type Candidate = {
   edge: number;
@@ -62,6 +73,8 @@ export function matchRoads(
   roads: Feature<Geometry>[],
 ): RoadMatches {
   const result: RoadMatches = { type: "FeatureCollection", features: [] };
+  const pauseLinks: PauseLinks = { type: "FeatureCollection", features: [] };
+  result.pauseLinks = pauseLinks;
   const origin = rides.flatMap((r) => r.segments).find((s) => s.length)?.[0];
   if (!origin || !roads.length) return result;
   const scale = 111195 * Math.cos((origin.lat * Math.PI) / 180);
@@ -194,10 +207,14 @@ export function matchRoads(
       len = Math.hypot(...heading);
     for (const i of nearby(p)) {
       const e = edges[i],
-        alignment = Math.abs(
-          (heading[0] * (e.b[0] - e.a[0]) + heading[1] * (e.b[1] - e.a[1])) /
-            (len * e.length),
-        );
+        alignment =
+          len < 1
+            ? 1
+            : Math.abs(
+                (heading[0] * (e.b[0] - e.a[0]) +
+                  heading[1] * (e.b[1] - e.a[1])) /
+                  (len * e.length),
+              );
       if (alignment < 0.25) continue;
       const q = project(p, e.a, e.b);
       if (q.distance <= TOLERANCE) found.push({ ...q, edge: i, alignment });
@@ -276,9 +293,12 @@ export function matchRoads(
     cost: number;
     previous?: State;
     steps: Step[];
+    observation: number;
   };
+  type Anchors = { start?: Candidate; end?: Candidate };
   function matchSequence(points: XY[], rideId: string) {
-    if (points.length < 2) return;
+    const anchors: Anchors = {};
+    if (points.length < 2) return anchors;
     // Use spatially spaced observations and a longer heading baseline, rather
     // than rejecting individual 1–5 m GPS steps whose heading is dominated by noise.
     const observations = [points[0]];
@@ -319,6 +339,20 @@ export function matchRoads(
           common++;
         certain = common;
       }
+      const committed = chain.slice(0, certain);
+      if (
+        committed.length >= 2 &&
+        committed.some((s) =>
+          s.steps.some(
+            (step) =>
+              Math.abs(step.to - step.from) * edges[step.edge].length > 0.3,
+          ),
+        )
+      ) {
+        if (committed[0].observation === 0) anchors.start = committed[0].match;
+        if (committed.at(-1)!.observation === observations.length - 1)
+          anchors.end = committed.at(-1)!.match;
+      }
       for (const state of chain.slice(0, certain))
         for (const step of state.steps) {
           if (Math.abs(step.to - step.from) * edges[step.edge].length > 0.01)
@@ -358,7 +392,13 @@ export function matchRoads(
             const cost =
               previous.cost + emission + Math.abs(route.length - d) / 10;
             if (!best || cost < best.cost)
-              best = { match: option, cost, previous, steps: route.steps };
+              best = {
+                match: option,
+                cost,
+                previous,
+                steps: route.steps,
+                observation: i,
+              };
           }
         if (best) next.push(best);
       }
@@ -368,51 +408,200 @@ export function matchRoads(
           match,
           cost: (match.distance / 12) ** 2 + (1 - match.alignment) * 0.5,
           steps: [],
+          observation: i,
         }));
       } else states = next;
       lastPoint = p;
     }
     finish();
+    return anchors;
   }
-  for (const ride of rides)
-    for (const segment of ride.segments) {
-      let points: XY[] = [];
-      for (const point of segment) {
-        const p = xy([point.lon, point.lat]);
-        if (!p.every(Number.isFinite)) {
-          matchSequence(points, ride.id);
-          points = [];
-          continue;
-        }
-        if (points.length && distance(points.at(-1)!, p) > 300) {
-          matchSequence(points, ride.id);
-          points = [];
-        }
-        points.push(p);
+  // Pauses use the shortest distance in the loaded road graph. Unlike ordinary
+  // GPS matching, alternate roads, long detours and travel speed do not veto it.
+  function pauseRoute(a: Candidate, b: Candidate) {
+    if (a.edge === b.edge)
+      return { steps: [{ edge: a.edge, from: a.t, to: b.t }] };
+    type Arrival = {
+      node: string;
+      length: number;
+      step: Step;
+      previous?: Arrival;
+    };
+    const heap: Arrival[] = [],
+      costs = new Map<string, number>();
+    const push = (arrival: Arrival) => {
+      if (arrival.length >= (costs.get(arrival.node) ?? Infinity)) return;
+      costs.set(arrival.node, arrival.length);
+      let i = heap.length;
+      heap.push(arrival);
+      while (i > 0) {
+        const parent = (i - 1) >> 1;
+        if (heap[parent].length <= arrival.length) break;
+        heap[i] = heap[parent];
+        i = parent;
       }
-      matchSequence(points, ride.id);
+      heap[i] = arrival;
+    };
+    const pop = () => {
+      const first = heap[0],
+        last = heap.pop()!;
+      if (heap.length) {
+        let i = 0;
+        while (i * 2 + 1 < heap.length) {
+          let child = i * 2 + 1;
+          if (
+            child + 1 < heap.length &&
+            heap[child + 1].length < heap[child].length
+          )
+            child++;
+          if (last.length <= heap[child].length) break;
+          heap[i] = heap[child];
+          i = child;
+        }
+        heap[i] = last;
+      }
+      return first;
+    };
+    const first = edges[a.edge],
+      last = edges[b.edge];
+    push({
+      node: first.u,
+      length: a.t * first.length,
+      step: { edge: a.edge, from: a.t, to: 0 },
+    });
+    push({
+      node: first.v,
+      length: (1 - a.t) * first.length,
+      step: { edge: a.edge, from: a.t, to: 1 },
+    });
+    let best: { length: number; arrival: Arrival; end: 0 | 1 } | undefined;
+    while (heap.length) {
+      const current = pop();
+      if (best && current.length >= best.length) break;
+      if (current.length !== costs.get(current.node)) continue;
+      const end =
+        current.node === last.u ? 0 : current.node === last.v ? 1 : null;
+      if (end !== null) {
+        const length = current.length + Math.abs(b.t - end) * last.length;
+        if (!best || length < best.length)
+          best = { length, arrival: current, end };
+      }
+      for (const index of adjacency.get(current.node) ?? []) {
+        if (index === a.edge || index === b.edge) continue;
+        const e = edges[index],
+          forward = e.u === current.node;
+        push({
+          node: forward ? e.v : e.u,
+          length: current.length + e.length,
+          previous: current,
+          step: { edge: index, from: forward ? 0 : 1, to: forward ? 1 : 0 },
+        });
+      }
     }
+    if (!best) return null;
+    const steps: Step[] = [];
+    for (
+      let arrival: Arrival | undefined = best.arrival;
+      arrival;
+      arrival = arrival.previous
+    )
+      steps.push(arrival.step);
+    steps.reverse();
+    steps.push({ edge: b.edge, from: best.end, to: b.t });
+    return { steps };
+  }
+  for (const ride of rides) {
+    const plan = trackContinuity(ride.segments),
+      anchors = new Map<(typeof plan.chunks)[number], Anchors>();
+    for (const chunk of plan.chunks)
+      anchors.set(
+        chunk,
+        matchSequence(
+          chunk.map((p) => xy([p.lon, p.lat])),
+          ride.id,
+        ),
+      );
+    for (const gap of plan.gaps) {
+      const start = gap.before.at(-1)!,
+        end = gap.after[0];
+      const a =
+          anchors.get(gap.before)?.end ??
+          candidates(xy([start.lon, start.lat]), [0, 0])[0],
+        b =
+          anchors.get(gap.after)?.start ??
+          candidates(xy([end.lon, end.lat]), [0, 0])[0];
+      if (!a || !b) continue;
+      const route = pauseRoute(a, b);
+      if (!route) continue;
+      const coordinates: number[][] = [[start.lon, start.lat]];
+      const append = (p: number[]) => {
+        const last = coordinates.at(-1)!;
+        if (Math.hypot(last[0] - p[0], last[1] - p[1]) > 1e-10)
+          coordinates.push(p);
+      };
+      for (const step of route.steps) {
+        const edge = edges[step.edge];
+        append(ll(lerp(edge.a, edge.b, step.from)));
+        append(ll(lerp(edge.a, edge.b, step.to)));
+      }
+      append([end.lon, end.lat]);
+      if (coordinates.length > 1)
+        pauseLinks.features.push({
+          type: "Feature",
+          properties: { rideId: ride.id },
+          geometry: { type: "LineString", coordinates },
+        });
+      for (const step of route.steps)
+        if (Math.abs(step.to - step.from) * edges[step.edge].length > 0.01)
+          edges[step.edge].intervals.push({
+            lo: Math.min(step.from, step.to),
+            hi: Math.max(step.from, step.to),
+            id: ride.id,
+            inferred: true,
+          });
+    }
+  }
   for (const edge of edges) {
     const events = edge.intervals
       .flatMap((i) => [
-        { t: i.lo, id: i.id, delta: 1 },
-        { t: i.hi, id: i.id, delta: -1 },
+        { t: i.lo, id: i.id, delta: 1, inferred: !!i.inferred },
+        { t: i.hi, id: i.id, delta: -1, inferred: !!i.inferred },
       ])
       .sort((a, b) => a.t - b.t);
-    const active = new Map<string, number>();
+    const active = new Map<string, number>(),
+      inferred = new Map<string, number>();
     let previous = 0;
     for (let i = 0; i < events.length;) {
       const t = events[i].t;
-      if ((t - previous) * edge.length > 0.01 && active.size) {
-        const rideIds = [...active.keys()].sort(),
+      if (
+        (t - previous) * edge.length > 0.01 &&
+        (active.size || inferred.size)
+      ) {
+        const observedRideIds = [...active.keys()].sort(),
+          inferredRideIds = [...inferred.keys()]
+            .filter((id) => !active.has(id))
+            .sort();
+        const rideIds = [
+            ...new Set([...observedRideIds, ...inferredRideIds]),
+          ].sort(),
           coordinates = [
             ll(lerp(edge.a, edge.b, previous)),
             ll(lerp(edge.a, edge.b, t)),
           ],
           last = result.features.at(-1);
+        const properties: RoadProperties = {
+          count: [...active.values()].reduce(
+            (total, passes) => total + passes,
+            0,
+          ),
+          rideIds,
+          ...(inferredRideIds.length
+            ? { observedRideIds, inferredRideIds, inferred: !active.size }
+            : {}),
+        };
         if (
           last &&
-          JSON.stringify(last.properties.rideIds) === JSON.stringify(rideIds) &&
+          JSON.stringify(last.properties) === JSON.stringify(properties) &&
           distance(last.geometry.coordinates.at(-1) as XY, coordinates[0]) <
             1e-10
         )
@@ -420,15 +609,16 @@ export function matchRoads(
         else
           result.features.push({
             type: "Feature",
-            properties: { count: rideIds.length, rideIds },
+            properties,
             geometry: { type: "LineString", coordinates },
           });
       }
       while (i < events.length && Math.abs(events[i].t - t) < 1e-9) {
         const event = events[i++],
-          count = (active.get(event.id) ?? 0) + event.delta;
-        if (count > 0) active.set(event.id, count);
-        else active.delete(event.id);
+          target = event.inferred ? inferred : active,
+          count = (target.get(event.id) ?? 0) + event.delta;
+        if (count > 0) target.set(event.id, count);
+        else target.delete(event.id);
       }
       previous = t;
     }
