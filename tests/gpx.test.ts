@@ -1,6 +1,7 @@
+// @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { webcrypto } from "node:crypto";
-import { parseGpx } from "../src/gpx";
+import { parseGpx, gpxSegments } from "../src/gpx";
 import { stats } from "../src/stats";
 vi.stubGlobal("crypto", webcrypto);
 const point = (lon: number, time?: string) =>
@@ -25,6 +26,42 @@ describe("GPX calculations", () => {
     expect(r.distance).toBeCloseTo(222.39, 2);
     expect(r.duration).toBeNull();
     expect(r.date).toBeNull();
+  });
+  it("reads recorded speed from point fields and nested extensions without changing ride identity", async () => {
+    const points = ["0", "5.5", "-1", "NaN", "Infinity", ""]
+      .map((speed, i) =>
+        point(i / 1000).replace(
+          "</trkpt>",
+          `<extensions><x:TrackPointExtension xmlns:x="urn:test"><x:speed>${speed}</x:speed></x:TrackPointExtension></extensions></trkpt>`,
+        ),
+      )
+      .join("");
+    const raw = wrap(points);
+    const r = await parseGpx(raw, "test.gpx");
+    expect(r.segments[0].map((p) => p.speed)).toEqual([
+      0,
+      5.5,
+      null,
+      null,
+      null,
+      null,
+    ]);
+    expect(gpxSegments(raw)).toEqual(r.segments);
+    expect(
+      (
+        await parseGpx(
+          raw.replace("<x:speed>5.5</x:speed>", "<x:speed>9</x:speed>"),
+          "test.gpx",
+        )
+      ).id,
+    ).toBe(r.id);
+    const direct = await parseGpx(
+      wrap(
+        point(0).replace("</trkpt>", "<speed>2</speed></trkpt>") + point(0.001),
+      ),
+      "direct.gpx",
+    );
+    expect(direct.segments[0].map((p) => p.speed)).toEqual([2, null]);
   });
   it("deduplicates XML formatting and metadata changes", async () => {
     const a = wrap(point(0) + point(1));

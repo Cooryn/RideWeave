@@ -6,7 +6,7 @@ import {
   History,
   ChartNoAxesCombined,
   Settings,
-  Upload,
+  Download,
   ArrowUpRight,
   Route,
   Clock3,
@@ -19,13 +19,17 @@ import {
   LocateFixed,
   Sun,
   Moon,
-  Database,
   CheckCircle2,
 } from "lucide-react";
 import RideMap from "./Map";
+import RideCharts from "./RideCharts";
+import StatsDashboard from "./StatsDashboard";
+import SettingsPage from "./SettingsPage";
+import { useGpxDrop, type GpxImportFile } from "./useGpxDrop";
+import type { StatsPeriod } from "./rideAnalytics";
 import type { RoadMode } from "./useRoadOverlay";
 import WindowControls from "./WindowControls";
-import type { Ride } from "./types";
+import type { Ride, RidePreviewPoint } from "./types";
 import { parseGpx } from "./gpx";
 import { stats, number, dateLabel } from "./stats";
 import {
@@ -39,6 +43,7 @@ type Page = "map" | "history" | "stats" | "settings";
 export default function App() {
   const [page, setPage] = useState<Page>("map"),
     [roadMode, setRoadMode] = useState<RoadMode>("heat"),
+    [statsPeriod, setStatsPeriod] = useState<StatsPeriod>("month"),
     [rides, setRides] = useState<Ride[]>([]),
     [selected, setSelected] = useState<string | null>(null),
     [hidden, setHidden] = useState<Set<string>>(new Set()),
@@ -52,6 +57,9 @@ export default function App() {
     [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [dark, setDark] = useState(
     () => localStorage.getItem("rideweave-theme") !== "light",
+  );
+  const [previewPoint, setPreviewPoint] = useState<RidePreviewPoint | null>(
+    null,
   );
   const input = useRef<HTMLInputElement>(null),
     lock = useRef(false);
@@ -91,12 +99,20 @@ export default function App() {
     setEdit(false);
     setConfirmDelete(null);
     setHidden((prev) => {
+      if (!prev.has(id)) return prev;
       const s = new Set(prev);
       s.delete(id);
       return s;
     });
   }
-  async function importFiles(files: File[]) {
+  const dropPaths = useGpxDrop({
+    desktop,
+    ready,
+    busy,
+    onImport: importFiles,
+    onError: setError,
+  });
+  async function importFiles(files: GpxImportFile[]) {
     if (lock.current) return;
     lock.current = true;
     setBusy(true);
@@ -109,7 +125,7 @@ export default function App() {
       for (const file of files) {
         try {
           if (!/\.gpx$/i.test(file.name)) throw new Error("仅支持 GPX 文件");
-          if (file.size > 50 * 1024 * 1024)
+          if (file.size !== undefined && file.size > 50 * 1024 * 1024)
             throw new Error("文件超过 50 MB 限制");
           const raw = await file.text();
           const ride = await parseGpx(raw, file.name);
@@ -268,6 +284,27 @@ export default function App() {
     ));
   return (
     <div className={`app ${page === "map" ? "map-page" : ""}`}>
+      {dropPaths !== null && (
+        <div className="gpx-drop-overlay" role="status" aria-live="polite">
+          <div>
+            <Download size={38} />
+            <h2>
+              {!ready
+                ? "正在读取本地数据…"
+                : busy
+                  ? "正在处理文件…"
+                  : dropPaths.some((path) => /\.gpx$/i.test(path))
+                    ? "松开以导入 GPX"
+                    : "请拖入 GPX 文件"}
+            </h2>
+            <p>
+              {!ready || busy
+                ? "请稍后再拖入文件"
+                : "支持多个文件，每个不超过 50 MB"}
+            </p>
+          </div>
+        </div>
+      )}
       <aside className="sidebar">
         <div className="brand">
           <span>
@@ -341,7 +378,7 @@ export default function App() {
               disabled={busy || !ready || !desktop}
               onClick={() => input.current?.click()}
             >
-              <Upload size={17} />
+              <Download size={17} />
               {busy ? "正在处理…" : "导入 GPX"}
               <span>＋</span>
             </button>
@@ -391,7 +428,7 @@ export default function App() {
               </button>
             </div>
           )}
-          {(page === "map" || page === "stats") && (
+          {page === "map" && (
             <>
               <div className="stats-grid">
                 {cards.map((c) => (
@@ -409,53 +446,55 @@ export default function App() {
               </div>
             </>
           )}
-          {page === "map" && (
-            <div className="map-layout">
-              <section className="map-panel">
-                <div className="panel-heading">
-                  <div>
-                    <h2>我的骑行版图</h2>
-                  </div>
+          <div className="map-layout" hidden={page !== "map"}>
+            <section className="map-panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>我的骑行版图</h2>
+                </div>
+                <button
+                  className="subtle"
+                  onClick={() => {
+                    setHidden(new Set());
+                    setSelected(null);
+                    setFitKey((k) => k + 1);
+                  }}
+                >
+                  <LocateFixed size={16} />
+                  全部轨迹
+                </button>
+              </div>
+              <RideMap
+                active={page === "map"}
+                previewPoint={previewPoint}
+                roadMode={roadMode}
+                onRoadModeChange={setRoadMode}
+                rides={visible}
+                selected={selected}
+                onSelect={select}
+                onClearSelection={() => setSelected(null)}
+                fitKey={fitKey}
+                dark={dark}
+              />
+              {!rides.length && (
+                <div className="empty-map">
+                  <span className="empty-symbol">
+                    <Route size={28} />
+                  </span>
+                  <h3>暂无骑行记录</h3>
+
                   <button
-                    className="subtle"
-                    onClick={() => {
-                      setHidden(new Set());
-                      setSelected(null);
-                      setFitKey((k) => k + 1);
-                    }}
+                    className="primary"
+                    disabled={!desktop || busy || !ready}
+                    onClick={() => input.current?.click()}
                   >
-                    <LocateFixed size={16} />
-                    全部轨迹
+                    <Download size={16} />
+                    导入第一条路线
                   </button>
                 </div>
-                <RideMap
-                  roadMode={roadMode}
-                  onRoadModeChange={setRoadMode}
-                  rides={visible}
-                  selected={selected}
-                  onSelect={select}
-                  onClearSelection={() => setSelected(null)}
-                  fitKey={fitKey}
-                  dark={dark}
-                />
-                {!rides.length && (
-                  <div className="empty-map">
-                    <span className="empty-symbol">
-                      <Route size={28} />
-                    </span>
-                    <h3>暂无骑行记录</h3>
-
-                    <button
-                      className="primary"
-                      disabled={!desktop || busy || !ready}
-                      onClick={() => input.current?.click()}
-                    >
-                      <Upload size={16} />
-                      导入第一条路线
-                    </button>
-                  </div>
-                )}
-              </section>
+              )}
+            </section>
+            {page === "map" && (
               <aside className="ride-panel">
                 {current ? (
                   <>
@@ -552,6 +591,11 @@ export default function App() {
                           <strong>{current.segments.flat().length}</strong>
                         </div>
                       </div>
+                      <RideCharts
+                        key={current.id}
+                        ride={current}
+                        onPreview={setPreviewPoint}
+                      />
                       <p className="filename">原始文件：{current.filename}</p>
                       <div className="detail-actions">
                         <button
@@ -610,8 +654,8 @@ export default function App() {
                   </>
                 )}
               </aside>
-            </div>
-          )}
+            )}
+          </div>
           {page === "history" && (
             <section className="surface">
               <div className="panel-heading">
@@ -629,64 +673,23 @@ export default function App() {
             </section>
           )}
           {page === "stats" && (
-            <div className="stats-extra">
-              <section className="surface">
-                <div className="panel-heading">
-                  <h2>本月骑行</h2>
-                </div>
-                <div className="big-month">
-                  {number(summary.month)} <small>km</small>
-                  <p>
-                    {new Date().toLocaleDateString("zh-CN", {
-                      year: "numeric",
-                      month: "long",
-                    })}{" "}
-                  </p>
-                </div>
-              </section>
-              {summary.missingTime > 0 && (
-                <div className="notice">
-                  {summary.missingTime} 条记录缺少有效时间，未计入累计时间。
-                </div>
-              )}
-            </div>
+            <StatsDashboard
+              rides={rides}
+              period={statsPeriod}
+              onPeriodChange={setStatsPeriod}
+              onSelect={(id) => {
+                select(id);
+                setPage("map");
+              }}
+            />
           )}
           {page === "settings" && (
-            <section className="surface settings">
-              <h2>外观</h2>
-              <div className="setting-row">
-                <div>
-                  <strong>深色模式</strong>
-                </div>
-                <button className="subtle" onClick={() => setDark(!dark)}>
-                  {dark ? <Moon size={18} /> : <Sun size={18} />}{" "}
-                  {dark ? "深色" : "浅色"}
-                </button>
-              </div>
-              <h2>本地数据</h2>
-              <div className="setting-row">
-                <Database size={24} />
-                <div>
-                  <strong>SQLite · 仅保存在这台电脑</strong>
-                  <p>备份前请关闭应用。</p>
-                  <code>%APPDATA%\com.rideweave.desktop\rideweave.db</code>
-                </div>
-              </div>
-              <h2>地图与隐私</h2>
-              <p>
-                地图底图需要联网访问 OpenFreeMap（基于 OpenStreetMap
-                数据）；请求包含当前地图范围和样式资源。GPX
-                文件不会上传到服务器。
-              </p>
-              <p>
-                骑行热区会按轨迹范围加载道路瓦片，在本机沿相连道路匹配，颜色仅沿道路显示重合记录数。
-                同次骑行往返只计一次，不向道路外扩散。地图服务会收到道路瓦片范围请求，GPX
-                与时间不上传。 匹配为估算，不会修改骑行距离或原始 GPX。
-              </p>
-
-              <h2>关于 RideWeave</h2>
-              <p>RideWeave 0.2.1</p>
-            </section>
+            <SettingsPage
+              dark={dark}
+              onThemeChange={setDark}
+              recordCount={ready ? rides.length : null}
+              desktop={desktop}
+            />
           )}
         </div>
       </main>

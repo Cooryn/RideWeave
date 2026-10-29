@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { afterAll, expect, it, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -12,7 +11,14 @@ vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => true }));
 vi.mock("@tauri-apps/plugin-sql", () => ({
   default: {
     load: async () => ({
-      select: async (sql: string) => fixture.connection!.prepare(sql).all(),
+      select: async (sql: string, values: (string | number | null)[] = []) =>
+        fixture
+          .connection!.prepare(sql)
+          .all(
+            Object.fromEntries(
+              values.map((value, index) => [`$${index + 1}`, value]),
+            ),
+          ),
       execute: async (sql: string, values: (string | number | null)[]) => ({
         rowsAffected: Number(
           fixture
@@ -27,7 +33,13 @@ vi.mock("@tauri-apps/plugin-sql", () => ({
     }),
   },
 }));
-import { loadRides, saveRide, renameRide, deleteRide } from "../src/storage";
+import {
+  loadRides,
+  saveRide,
+  renameRide,
+  deleteRide,
+  loadOriginalGpx,
+} from "../src/storage";
 const directory = mkdtempSync(join(tmpdir(), "rideweave-test-"));
 const filename = join(directory, "rides.db");
 afterAll(() => {
@@ -66,6 +78,8 @@ it("persists original GPX, deduplicates, renames, reopens and deletes", async ()
   expect(records).toHaveLength(1);
   expect(records[0].name).toBe("骑行 ' ; DROP TABLE rides; --");
   expect(records[0].segments).toEqual(ride.segments);
+  expect(await loadOriginalGpx(ride.id)).toBe("<gpx>original</gpx>");
+  expect(await loadOriginalGpx("missing ' OR 1=1 --")).toBeNull();
   await deleteRide(ride.id);
   expect(await loadRides()).toEqual([]);
 });

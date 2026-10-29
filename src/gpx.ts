@@ -12,7 +12,18 @@ export function distanceBetween(a: Point, b: Point) {
       Math.sin(((b.lon - a.lon) * rad) / 2) ** 2;
   return 6371.0088 * 2 * Math.asin(Math.sqrt(Math.min(1, h)));
 }
-export async function parseGpx(raw: string, filename: string): Promise<Ride> {
+function recordedSpeed(el: Element): number | null {
+  const extension = children(el, "extensions")[0];
+  const text =
+    value(el, "speed") ??
+    Array.from(extension?.getElementsByTagName("*") ?? [])
+      .find((e) => e.localName === "speed")
+      ?.textContent?.trim();
+  const speed = text ? Number(text) : NaN;
+  return Number.isFinite(speed) && speed >= 0 ? speed : null;
+}
+
+function readGpx(raw: string) {
   if (/<!DOCTYPE/i.test(raw)) throw new Error("不支持含 DOCTYPE 的 GPX");
   const doc = new DOMParser().parseFromString(raw, "application/xml");
   if (
@@ -59,12 +70,21 @@ export async function parseGpx(raw: string, filename: string): Promise<Ride> {
           elevation !== null && Number.isFinite(Number(elevation))
             ? Number(elevation)
             : null,
+        speed: recordedSpeed(el),
       });
     }
     if (points.length) segments.push(points);
   }
   if (!segments.some((s) => s.length >= 2))
     throw new Error("无有效 GPS 路线（至少需要两个连续轨迹点）");
+  return { segments, tracks, routes };
+}
+
+/** Reuse the original parser when reading telemetry from an older saved GPX. */
+export const gpxSegments = (raw: string) => readGpx(raw).segments;
+
+export async function parseGpx(raw: string, filename: string): Promise<Ride> {
+  const { segments, tracks, routes } = readGpx(raw);
   const points = segments.flat();
   const distance = segments.reduce(
     (total, s) =>

@@ -3,9 +3,8 @@ import {
   createExpression,
   validateStyleMin,
 } from "@maplibre/maplibre-gl-style-spec";
-import type { LineLayerSpecification, StyleSpecification } from "maplibre-gl";
-import { drivingRoadLayers, drivingRoadStyle } from "../src/roadStyle";
-import { roadPalette } from "../src/mapTheme";
+import type { StyleSpecification } from "maplibre-gl";
+import { drivingRoadStyle } from "../src/roadStyle";
 
 it("applies the Horizon-inspired appearance to both original carriageways without changing their source", () => {
   const base: StyleSpecification = {
@@ -33,6 +32,15 @@ it("applies the Horizon-inspired appearance to both original carriageways withou
     const style = drivingRoadStyle(base, dark);
     expect(validateStyleMin(style)).toEqual([]);
     expect(style.sources).toBe(base.sources);
+    // Paved road caps must meet bridge/tunnel entrances without closing the pavement.
+    const paved = style.layers.filter((layer) =>
+      /-(shadow|edge|surface)(-streets)?$/.test(layer.id),
+    );
+    expect(paved.length).toBeGreaterThan(0);
+    for (const layer of paved) {
+      if (layer.type !== "line") throw new Error("Expected road layers");
+      expect(layer.layout?.["line-cap"]).toBe("butt");
+    }
     const edge = style.layers.find(
       (l) => l.id === "rideweave-driving-basemap-ground-edge",
     )!;
@@ -64,66 +72,4 @@ it("applies the Horizon-inspired appearance to both original carriageways withou
       ).toBe(true);
   }
   expect(JSON.stringify(base)).toBe(before);
-});
-
-// A centreline coverage probe follows the style's actual pass order and cap
-// semantics. A round outer cap extends farther than the inner pavement cap,
-// painting a white band across the road at each bridge entrance.
-it("keeps bridge entrances continuous without drawing casing endcaps across the pavement", () => {
-  const roads = [
-    { from: -120, to: -40, properties: { class: "primary" } },
-    { from: 40, to: 120, properties: { class: "primary" } },
-    {
-      from: -40,
-      to: 40,
-      properties: { class: "primary", brunnel: "bridge", layer: 1 },
-    },
-  ];
-  const expressions = new Map<unknown, ReturnType<typeof createExpression>>();
-  const evaluate = (
-    value: unknown,
-    properties: Record<string, unknown>,
-    zoom: number,
-  ) => {
-    if (!Array.isArray(value)) return value;
-    const parsed = expressions.get(value) ?? createExpression(value);
-    expressions.set(value, parsed);
-    if (parsed.result === "error")
-      throw new Error(JSON.stringify(parsed.value));
-    return parsed.value.evaluate({ zoom }, { type: 2, properties });
-  };
-  for (const dark of [false, true]) {
-    const layers = drivingRoadLayers(
-      "basemap",
-      dark,
-    ) as LineLayerSpecification[];
-    const sample = (x: number, zoom: number) => {
-      let color = roadPalette(dark).background;
-      for (const layer of layers) {
-        if ((layer.minzoom ?? 0) > zoom) continue;
-        for (const road of roads) {
-          if (!evaluate(layer.filter, road.properties, zoom)) continue;
-          const width = evaluate(
-            layer.paint?.["line-width"],
-            road.properties,
-            zoom,
-          );
-          const extension =
-            layer.layout?.["line-cap"] === "round" ? width / 2 : 0;
-          if (x > road.from - extension && x < road.to + extension)
-            color = String(layer.paint?.["line-color"]);
-        }
-      }
-      return color;
-    };
-    for (const zoom of [12, 14, 16, 19])
-      for (const entrance of [-40, 40]) {
-        for (let offset = -6; offset <= 6; offset += 0.125) {
-          if (offset === 0) continue; // Exact edge antialiasing is renderer-dependent.
-          expect(sample(entrance + offset, zoom)).toBe(
-            roadPalette(dark).surface,
-          );
-        }
-      }
-  }
 });

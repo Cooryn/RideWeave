@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Map as VectorMap,
   AttributionControl,
+  Marker,
   type MapMouseEvent,
   type StyleSpecification,
 } from "maplibre-gl";
 import { LocateFixed, Plus, Minus } from "lucide-react";
-import type { Ride } from "./types";
+import type { Ride, RidePreviewPoint } from "./types";
 import { drivingRoadStyle } from "./roadStyle";
 import { useRoadOverlay, ROAD_LAYER, type RoadMode } from "./useRoadOverlay";
 import {
@@ -35,7 +36,9 @@ export default function RideMap({
   roadMode,
   onRoadModeChange,
   fitKey,
+  active = true,
   dark = false,
+  previewPoint = null,
 }: {
   rides: Ride[];
   selected: string | null;
@@ -44,10 +47,13 @@ export default function RideMap({
   roadMode: RoadMode;
   onRoadModeChange: (mode: RoadMode) => void;
   fitKey: number;
+  active?: boolean;
   dark?: boolean;
+  previewPoint?: RidePreviewPoint | null;
 }) {
   const element = useRef<HTMLDivElement>(null);
   const map = useRef<VectorMap | null>(null);
+  const previewMarker = useRef<Marker | null>(null);
   const [error, setError] = useState("");
   const [fatal, setFatal] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -85,6 +91,8 @@ export default function RideMap({
         dragRotate: false,
         pitchWithRotate: false,
         renderWorldCopies: false,
+        // Our observer ignores hidden containers to retain the camera and canvas size.
+        trackResize: false,
       });
     } catch {
       setFatal(true);
@@ -152,17 +160,26 @@ export default function RideMap({
       setLoading(false);
       setError("地图图形渲染已中断，请重启应用。本地骑行记录仍可使用。");
     });
-    const observer = new ResizeObserver(() => m.resize());
+    const observer = new ResizeObserver(() => {
+      if (element.current?.clientWidth && element.current.clientHeight)
+        m.resize();
+    });
     observer.observe(element.current!);
     fit();
     return () => {
       observer.disconnect();
+      previewMarker.current?.remove();
+      previewMarker.current = null;
       m.remove();
       map.current = null;
     };
     // A theme change reloads the style below, preserving the camera and map instance.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useLayoutEffect(() => {
+    if (active) map.current?.resize();
+  }, [active]);
 
   useEffect(() => {
     const m = map.current;
@@ -220,6 +237,31 @@ export default function RideMap({
   useEffect(() => {
     fit();
   }, [rides, selected, fitKey]);
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    if (
+      !previewPoint ||
+      previewPoint.rideId !== selected ||
+      !rides.some((r) => r.id === selected) ||
+      !Number.isFinite(previewPoint.lon + previewPoint.lat) ||
+      Math.abs(previewPoint.lon) > 180 ||
+      Math.abs(previewPoint.lat) > 90
+    ) {
+      previewMarker.current?.remove();
+      previewMarker.current = null;
+      return;
+    }
+    const coordinate: [number, number] = [previewPoint.lon, previewPoint.lat];
+    if (!previewMarker.current) {
+      const dot = document.createElement("div");
+      dot.className = "ride-preview-marker";
+      dot.setAttribute("aria-hidden", "true");
+      previewMarker.current = new Marker({ element: dot, anchor: "center" })
+        .setLngLat(coordinate)
+        .addTo(m);
+    } else previewMarker.current.setLngLat(coordinate);
+  }, [previewPoint, selected, rides]);
   const roadStatus = useRoadOverlay(map, rides, selected, displayMode);
 
   return (

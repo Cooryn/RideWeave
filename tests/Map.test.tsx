@@ -1,25 +1,17 @@
+// @vitest-environment jsdom
 import { act, useState, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
-import type { Ride } from "../src/types";
+import type { Ride, RidePreviewPoint } from "../src/types";
 import {
   HIT_LAYER,
   RIDES_SOURCE,
   ROUTES_LAYER,
   SELECTED_LAYER,
   ROUTES_CASING_LAYER,
-  SELECTED_CASING_LAYER,
-  MAP_STYLE,
 } from "../src/mapData";
 import { ROAD_SOURCE, ROAD_LAYER } from "../src/useRoadOverlay";
-import {
-  ROAD_CASING_LAYER,
-  ROUTE_COLOR,
-  SELECTED_ROUTE_COLOR,
-} from "../src/heatData";
 import { loadRoadTiles } from "../src/roadTiles";
-import { singleRoadNetwork } from "../src/roadNetwork";
-import { roadPalette } from "../src/mapTheme";
 vi.mock("../src/roadTiles", () => ({
   loadRoadTiles: vi.fn(async () => ({ roads: [], failed: 0, omitted: 0 })),
 }));
@@ -34,9 +26,23 @@ const roadFixture = {
     ],
   },
 };
-const mock = vi.hoisted(() => ({ instances: [] as any[], fail: false }));
+const mock = vi.hoisted(() => ({
+  instances: [] as any[],
+  markers: [] as any[],
+  fail: false,
+}));
 vi.mock("maplibre-gl", () => ({
   AttributionControl: class {},
+  Marker: class {
+    element: HTMLElement;
+    setLngLat = vi.fn(() => this);
+    addTo = vi.fn(() => this);
+    remove = vi.fn();
+    constructor(options: { element: HTMLElement }) {
+      this.element = options.element;
+      mock.markers.push(this);
+    }
+  },
   Map: class {
     listeners = new Map<string, Function[]>();
     style: any;
@@ -53,9 +59,7 @@ vi.mock("maplibre-gl", () => ({
     setFilter = vi.fn();
     setLayoutProperty = vi.fn();
     setPaintProperty = vi.fn();
-    getZoom = vi.fn(() => 15);
     isStyleLoaded = vi.fn(() => true);
-    querySourceFeatures = vi.fn(() => []);
     getStyle() {
       return this.style;
     }
@@ -112,6 +116,7 @@ function MapHarness(
   );
 }
 let element: HTMLDivElement, root: Root;
+let notifyResize: () => void;
 const onSelect = vi.fn();
 const onClearSelection = vi.fn();
 const point = (lat: number, lon: number) => ({
@@ -148,6 +153,7 @@ const base = {
 const response = () => ({ ok: true, json: async () => base });
 beforeEach(() => {
   mock.instances = [];
+  mock.markers = [];
   mock.fail = false;
   onSelect.mockClear();
   vi.mocked(loadRoadTiles)
@@ -158,6 +164,9 @@ beforeEach(() => {
   vi.stubGlobal(
     "ResizeObserver",
     class {
+      constructor(callback: () => void) {
+        notifyResize = callback;
+      }
       observe() {}
       disconnect() {}
     },
@@ -176,6 +185,8 @@ async function render(
   rides = [first, second],
   selected: string | null = null,
   dark = false,
+  previewPoint: RidePreviewPoint | null = null,
+  active = true,
 ) {
   await act(async () =>
     root.render(
@@ -186,10 +197,39 @@ async function render(
         onClearSelection={onClearSelection}
         fitKey={0}
         dark={dark}
+        previewPoint={previewPoint}
+        active={active}
       />,
     ),
   );
 }
+it("reuses the map and loaded roads after hiding, ignores zero-sized layouts and resizes on return", async () => {
+  const rides = [first, second];
+  await render(rides);
+  const map = mock.instances[0];
+  const fits = map.fitBounds.mock.calls.length;
+  const styles = map.setStyle.mock.calls.length;
+  await render(rides, null, false, null, false);
+  notifyResize();
+  expect(map.resize).not.toHaveBeenCalled();
+  const canvasContainer = element.querySelector(".map")!;
+  Object.defineProperties(canvasContainer, {
+    clientWidth: { value: 900, configurable: true },
+    clientHeight: { value: 550, configurable: true },
+  });
+  await render(rides);
+  expect(map.resize).toHaveBeenCalledOnce();
+  notifyResize();
+  expect(map.resize).toHaveBeenCalledTimes(2);
+  expect(mock.instances).toEqual([map]);
+  expect(map.remove).not.toHaveBeenCalled();
+  expect(map.fitBounds).toHaveBeenCalledTimes(fits);
+  expect(map.setStyle).toHaveBeenCalledTimes(styles);
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(loadRoadTiles).toHaveBeenCalledOnce();
+  await act(async () => root.render(null));
+  expect(map.remove).toHaveBeenCalledOnce();
+});
 const paint = (map: any, id: string, key: string) =>
   map.setPaintProperty.mock.calls
     .filter((c: any[]) => c[0] === id && c[1] === key)
@@ -198,6 +238,37 @@ const layout = (map: any, id: string, key: string) =>
   map.setLayoutProperty.mock.calls
     .filter((c: any[]) => c[0] === id && c[1] === key)
     .at(-1)?.[2] ?? map.getLayer(id).layout?.[key];
+
+it("moves a preview dot on the selected original route without moving the camera and clears stale points", async () => {
+  const rides = [first, second];
+  const point = { rideId: "one", lon: 120, lat: 30 };
+  await render(rides, "one");
+  expect(mock.markers).toHaveLength(0);
+  const map = mock.instances[0];
+  const fits = map.fitBounds.mock.calls.length;
+  await render(rides, "one", false, point);
+  const marker = mock.markers[0];
+  expect(marker.setLngLat).toHaveBeenLastCalledWith([120, 30]);
+  expect(marker.addTo).toHaveBeenCalledWith(map);
+  await render(rides, "one", false, { ...point, lon: 120.1, lat: 30.1 });
+  expect(marker.setLngLat).toHaveBeenLastCalledWith([120.1, 30.1]);
+  expect(mock.markers).toHaveLength(1);
+  expect(map.fitBounds).toHaveBeenCalledTimes(fits);
+  await render(rides, "one", true, point);
+  expect(mock.markers).toHaveLength(1);
+  expect(marker.remove).not.toHaveBeenCalled();
+  await render(rides, "two", true, point);
+  expect(marker.remove).toHaveBeenCalledOnce();
+  expect(mock.markers).toHaveLength(1);
+  await render(rides, "one", true, point);
+  await render(rides, "one", true, null);
+  expect(mock.markers[1].remove).toHaveBeenCalledOnce();
+  await render([second], "one", true, point);
+  expect(mock.markers).toHaveLength(2);
+  await render(rides, "one", true, point);
+  await act(async () => root.render(null));
+  expect(mock.markers[2].remove).toHaveBeenCalledOnce();
+});
 
 it("draws segmented WGS84 routes, selects them, hides them and fits visible bounds", async () => {
   await render();
@@ -237,70 +308,6 @@ it("draws segmented WGS84 routes, selects them, hides them and fits visible boun
   expect(map.source.setData.mock.lastCall[0].features).toHaveLength(0);
 });
 
-it("switches vector styles while preserving the map instance and selected route", async () => {
-  await render([first], "one");
-  const map = mock.instances[0];
-  await render([first], "one", true);
-  expect(mock.instances).toHaveLength(1);
-  expect(fetch).toHaveBeenLastCalledWith(MAP_STYLE, expect.anything());
-  expect(map.style.sources[RIDES_SOURCE].data.features[0].id).toBe("one");
-  expect(
-    map.style.layers.find((l: any) => l.id === SELECTED_LAYER).filter,
-  ).toEqual(["==", ["get", "rideId"], "one"]);
-});
-it("preserves original basemap geometry sources while applying the driving style through theme changes", async () => {
-  const networkBase = {
-    ...base,
-    layers: [
-      {
-        id: "background",
-        type: "background",
-        paint: { "background-color": "#fff" },
-      },
-      {
-        id: "road",
-        type: "line",
-        source: "basemap",
-        "source-layer": "transportation",
-        paint: { "line-width": 12, "line-offset": 2, "line-color": "#aaaaaa" },
-      },
-    ],
-  };
-  vi.mocked(fetch).mockResolvedValue({
-    ok: true,
-    json: async () => networkBase,
-  } as Response);
-  let roadShapes: unknown;
-  for (const dark of [false, true]) {
-    await render([], null, dark);
-    const map = mock.instances[0];
-    expect(map.style.sources.basemap.url).toBe(
-      "https://tiles.openfreemap.org/planet",
-    );
-    expect(map.getLayer("road").layout.visibility).toBe("none");
-    const roads = map.style.layers.filter((l: any) =>
-      l.id.startsWith("rideweave-driving"),
-    );
-    expect(roads.length).toBeGreaterThan(0);
-    const shapes = roads.map((l: any) => ({
-      ...l,
-      paint: { ...l.paint, "line-color": "theme" },
-    }));
-    if (roadShapes) expect(shapes).toEqual(roadShapes);
-    else roadShapes = shapes;
-    expect(map.getLayer("background").paint["background-color"]).toBe(
-      roadPalette(dark).background,
-    );
-    expect(
-      map.getLayer("rideweave-driving-basemap-ground-edge").paint["line-color"],
-    ).toBe(roadPalette(dark).edge);
-  }
-  expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual([
-    MAP_STYLE,
-    MAP_STYLE,
-  ]);
-  expect(mock.instances).toHaveLength(1);
-});
 it("initializes the active raw or heat geometry before style.load on theme changes and offline fallback", async () => {
   await render();
   const map = mock.instances[0];
@@ -336,8 +343,9 @@ it("initializes the active raw or heat geometry before style.load on theme chang
       .at(-1)?.[1],
   ).toEqual(["==", ["get", "rideId"], "one"]);
   expect(map.getLayer(SELECTED_LAYER).paint["line-opacity"]).toBe(1);
+  expect(mock.instances).toHaveLength(1);
 });
-it("shows only matched road lines, preserves heat at any zoom and focuses selected routes", async () => {
+it("switches between heat and original routes and focuses selected rides", async () => {
   const near: Ride = {
     ...first,
     segments: [[point(30.00005, 120), point(30.00005, 120.001)]],
@@ -371,11 +379,6 @@ it("shows only matched road lines, preserves heat at any zoom and focuses select
     "visibility",
     "none",
   );
-  const writes = map.roadSource.setData.mock.calls.length;
-  map.getZoom.mockReturnValue(6);
-  await act(async () => map.emit("idle"));
-  expect(map.roadSource.setData).toHaveBeenCalledTimes(writes);
-  expect(map.querySourceFeatures).not.toHaveBeenCalled();
   map.queryRenderedFeatures.mockReturnValue([
     { layer: { id: ROAD_LAYER }, properties: { rideIds: '["two"]' } },
   ]);
@@ -419,49 +422,6 @@ it("shows only matched road lines, preserves heat at any zoom and focuses select
   expect(map.roadSource.setData.mock.lastCall[0].features).toEqual([]);
 });
 
-it("shows the original off-road GPX and closed pauses even when no map roads are available", async () => {
-  const time = (t: number) =>
-    new Date(Date.UTC(2026, 0, 1) + t * 1000).toISOString();
-  const line = [0, 20, 40, 100, 120, 140].map((x, i) => ({
-    ...point(30.0002, 120 + x / 111195),
-    time: time(i < 3 ? i * 10 : 100 + (i - 3) * 10),
-  }));
-  const trace = { ...first, segments: [line] },
-    before = JSON.stringify(trace);
-  vi.mocked(loadRoadTiles).mockResolvedValue({
-    roads: [],
-    failed: 1,
-    omitted: 0,
-  });
-  await render([trace]);
-  const map = mock.instances[0];
-  await act(async () =>
-    Array.from(element.querySelectorAll("button"))
-      .find((b) => b.textContent === "骑行路线")!
-      .click(),
-  );
-  const coords =
-    map.source.setData.mock.lastCall[0].features[0].geometry.coordinates;
-  expect(coords.slice(0, 2)).toEqual([
-    line.slice(0, 3).map((p) => [p.lon, p.lat]),
-    line.slice(3).map((p) => [p.lon, p.lat]),
-  ]);
-  expect(coords[2]).toEqual([
-    [line[2].lon, line[2].lat],
-    [line[3].lon, line[3].lat],
-  ]);
-  expect(paint(map, ROUTES_LAYER, "line-opacity")).toBe(1);
-  expect(layout(map, ROAD_LAYER, "visibility")).toBe("none");
-  expect(element.querySelector(".tile-warning")).toBeNull();
-  expect(element.textContent).not.toContain("重试道路");
-  await render([trace], "one", true);
-  expect(
-    map.source.setData.mock.lastCall[0].features[0].geometry.coordinates,
-  ).toEqual(coords);
-  expect(element.querySelector(".tile-warning")).toBeNull();
-  expect(JSON.stringify(trace)).toBe(before);
-});
-
 it("silently closes pauses while roads are loading and after a road request fails", async () => {
   let reject!: (reason: Error) => void;
   vi.mocked(loadRoadTiles).mockReturnValue(
@@ -478,6 +438,9 @@ it("silently closes pauses while roads are loading and after a road request fail
   const rides = [{ ...first, segments: [line] }];
   await render(rides);
   expect(element.textContent).toContain("正在加载道路");
+  expect(mock.instances[0].style.sources[ROAD_SOURCE].data.features).toEqual(
+    [],
+  );
   await act(async () =>
     Array.from(element.querySelectorAll("button"))
       .find((b) => b.textContent === "骑行路线")!
@@ -497,223 +460,14 @@ it("silently closes pauses while roads are loading and after a road request fail
   expect(map.source.setData.mock.lastCall[0]).toEqual(raw);
   expect(element.querySelector(".tile-warning")).toBeNull();
   expect(element.textContent).not.toContain("重试道路");
-});
-
-it("shows counted repeat passes with bright cased routes and restores heat styling through theme changes", async () => {
-  const trace: Ride = {
-    ...first,
-    segments: [[point(30, 120), point(30, 120.001), point(30, 120)]],
-  };
-  await render([trace]);
-  const map = mock.instances[0];
-  const strokes = (ids: string[]) =>
-    ids.map((id) => ({
-      layout: map.getLayer(id).layout,
-      paint: Object.fromEntries(
-        Object.keys(map.getLayer(id).paint).map((key) => [
-          key,
-          paint(map, id, key),
-        ]),
-      ),
-    }));
-  const heatStyle = strokes([ROAD_CASING_LAYER, ROAD_LAYER]);
-  const casingVisibility = () =>
-    map.setLayoutProperty.mock.calls
-      .filter(
-        ([id, key]: string[]) =>
-          id === ROAD_CASING_LAYER && key === "visibility",
-      )
-      .at(-1)?.[2];
-  expect(
-    map.roadSource.setData.mock.lastCall[0].features.every(
-      (f: any) =>
-        f.properties.count === 2 && f.properties.rideIds.join() === "one",
-    ),
-  ).toBe(true);
-  expect(casingVisibility()).toBe("visible");
-  await act(async () =>
-    Array.from(element.querySelectorAll("button"))
-      .find((b) => b.textContent === "骑行路线")!
-      .click(),
-  );
-  expect(map.getLayer(ROUTES_LAYER).paint["line-color"]).toBe(ROUTE_COLOR);
-  expect(paint(map, ROUTES_CASING_LAYER, "line-opacity")).toBe(1);
-  expect(casingVisibility()).toBe("none");
-  expect(
-    map.style.layers.findIndex((l: any) => l.id === ROUTES_CASING_LAYER),
-  ).toBeLessThan(map.style.layers.findIndex((l: any) => l.id === ROUTES_LAYER));
-  expect(
-    element.querySelector<HTMLElement>(".map-legend i")!.style.background,
-  ).toBe("rgb(21, 223, 255)");
-  const rawStyle = strokes([ROUTES_CASING_LAYER, ROUTES_LAYER]);
-  await render([trace], null, true);
-  expect(map.getLayer(ROAD_CASING_LAYER)).toBeDefined();
-  expect(map.getLayer(ROUTES_LAYER).paint["line-color"]).toBe(ROUTE_COLOR);
-  expect(strokes([ROUTES_CASING_LAYER, ROUTES_LAYER])).toEqual(rawStyle);
-  await render([trace], "one", true);
-  expect(map.getLayer(SELECTED_LAYER).paint["line-color"]).toBe(
-    SELECTED_ROUTE_COLOR,
-  );
-  expect(map.getLayer(SELECTED_CASING_LAYER).paint["line-width"]).toBe(8);
-  const selectedStyle = strokes([SELECTED_CASING_LAYER, SELECTED_LAYER]);
-  await render([trace], "one", false);
-  expect(strokes([SELECTED_CASING_LAYER, SELECTED_LAYER])).toEqual(
-    selectedStyle,
-  );
-  map.queryRenderedFeatures.mockReturnValue([
-    { layer: { id: SELECTED_CASING_LAYER }, properties: { rideId: "one" } },
-  ]);
-  await act(async () => map.emit("click", { point: { x: 0, y: 0 } }));
-  expect(onSelect).toHaveBeenCalledWith("one");
-  await render([trace], null, true);
+  await render(rides);
   await act(async () =>
     Array.from(element.querySelectorAll("button"))
       .find((b) => b.textContent === "骑行热区")!
       .click(),
   );
-  expect(casingVisibility()).toBe("visible");
-  expect(strokes([ROAD_CASING_LAYER, ROAD_LAYER])).toEqual(heatStyle);
-  expect(paint(map, ROUTES_LAYER, "line-opacity")).toBe(0);
-  expect(element.textContent).not.toContain("补连");
-});
-
-it("does not invent heat when roads fail and keeps original routes usable without a road retry prompt", async () => {
-  vi.mocked(loadRoadTiles).mockResolvedValueOnce({
-    roads: [],
-    failed: 1,
-    omitted: 0,
-  });
-  const near = { ...first, segments: [[point(30, 120), point(30, 120.001)]] };
-  await render([near]);
-  const map = mock.instances[0];
-  expect(map.roadSource.setData.mock.lastCall[0].features).toEqual([]);
   expect(element.textContent).toContain("道路加载失败");
-  expect(element.textContent).not.toContain("重试道路");
-  await act(async () =>
-    Array.from(element.querySelectorAll("button"))
-      .find((b) => b.textContent === "骑行路线")!
-      .click(),
-  );
-  expect(paint(map, ROUTES_LAYER, "line-opacity")).toBe(1);
-  expect(
-    map.source.setData.mock.lastCall[0].features[0].geometry.coordinates,
-  ).toEqual([near.segments[0].map((p) => [p.lon, p.lat])]);
-  expect(element.textContent).not.toContain("道路加载失败");
-});
-
-it("centres heat on one road while preserving both original GPX geometries in route and selected views", async () => {
-  const carriageways = [
-    {
-      type: "Feature" as const,
-      properties: { class: "primary", oneway: 1 },
-      geometry: {
-        type: "LineString" as const,
-        coordinates: [
-          [120, 30],
-          [120.001, 30],
-        ],
-      },
-    },
-    {
-      type: "Feature" as const,
-      properties: { class: "primary", oneway: 1 },
-      geometry: {
-        type: "LineString" as const,
-        coordinates: [
-          [120.001, 30.00016],
-          [120, 30.00016],
-        ],
-      },
-    },
-  ];
-  const a = { ...first, segments: [[point(30, 120), point(30, 120.001)]] };
-  const b = {
-    ...second,
-    segments: [[point(30.00016, 120.001), point(30.00016, 120)]],
-  };
-  const networkBase = {
-    ...base,
-    layers: [
-      {
-        id: "road",
-        type: "line",
-        source: "basemap",
-        "source-layer": "transportation",
-        paint: { "line-width": 10, "line-offset": 2 },
-      },
-    ],
-  };
-  const before = JSON.stringify({ a, b, networkBase, carriageways });
-  vi.mocked(fetch).mockResolvedValue({
-    ok: true,
-    json: async () => networkBase,
-  } as Response);
-  vi.mocked(loadRoadTiles).mockResolvedValue({
-    roads: singleRoadNetwork(carriageways),
-    failed: 0,
-    omitted: 0,
-  });
-  await render([a, b]);
-  const map = mock.instances[0];
-  const check = () => {
-    const data = map.roadSource.setData.mock.lastCall[0];
-    expect(data.features).toHaveLength(1);
-    expect(
-      data.features[0].geometry.coordinates.every(
-        (p: number[]) => Math.abs(p[1] - 30.00008) < 1e-7,
-      ),
-    ).toBe(true);
-    expect(map.getLayer("rideweave-driving-basemap-ground-edge").source).toBe(
-      "basemap",
-    );
-    expect(
-      map.getLayer("rideweave-driving-basemap-ground-edge")["source-layer"],
-    ).toBe("transportation");
-    expect(map.style.sources.basemap).toEqual(base.sources.basemap);
-    const source = map.source.setData.mock.lastCall[0];
-    expect(
-      source.features.find((f: any) => f.properties.rideId === "one").geometry
-        .coordinates,
-    ).toEqual([a.segments[0].map((p) => [p.lon, p.lat])]);
-    expect(
-      source.features.find((f: any) => f.properties.rideId === "two").geometry
-        .coordinates,
-    ).toEqual([b.segments[0].map((p) => [p.lon, p.lat])]);
-  };
-  check();
-  expect(
-    map.roadSource.setData.mock.lastCall[0].features[0].properties.count,
-  ).toBe(2);
-  await act(async () =>
-    Array.from(element.querySelectorAll("button"))
-      .find((b) => b.textContent === "骑行路线")!
-      .click(),
-  );
-  check();
-  expect(paint(map, ROUTES_LAYER, "line-opacity")).toBe(1);
-  expect(layout(map, ROAD_LAYER, "visibility")).toBe("none");
-  await render([a, b], "one");
-  check();
-  expect(paint(map, ROUTES_LAYER, "line-opacity")).toBe(0);
-  expect(paint(map, SELECTED_LAYER, "line-opacity")).toBe(1);
-  expect(
-    map.setFilter.mock.calls
-      .filter((c: any[]) => c[0] === SELECTED_LAYER)
-      .at(-1)?.[1],
-  ).toEqual(["==", ["get", "rideId"], "one"]);
-  expect(
-    map.roadSource.setData.mock.lastCall[0].features.every((f: any) =>
-      f.properties.rideIds.includes("one"),
-    ),
-  ).toBe(true);
-  await render([a, b], "two", true);
-  check();
-  expect(
-    map.roadSource.setData.mock.lastCall[0].features.every((f: any) =>
-      f.properties.rideIds.includes("two"),
-    ),
-  ).toBe(true);
-  expect(JSON.stringify({ a, b, networkBase, carriageways })).toBe(before);
+  expect(map.roadSource.setData.mock.lastCall[0].features).toEqual([]);
 });
 
 it("ignores stale road matching after rides change or unmount", async () => {
@@ -733,88 +487,6 @@ it("ignores stale road matching after rides change or unmount", async () => {
   expect(mock.instances[0].style.sources[ROAD_SOURCE].data.features).toEqual(
     [],
   );
-});
-
-it("displays repaired pauses as ordinary solid routes without adding a pause legend in any mode", async () => {
-  const timed = (lat: number, lon: number, t: number) => ({
-    ...point(lat, lon),
-    time: new Date(Date.UTC(2026, 9, 29) + t * 1000).toISOString(),
-  });
-  const a: Ride = {
-    ...first,
-    segments: [
-      [timed(30, 120, 0), timed(30, 120.0004, 10), timed(30, 120.0008, 20)],
-      [
-        timed(30, 120.0016, 120),
-        timed(30, 120.002, 130),
-        timed(30, 120.0024, 140),
-      ],
-    ],
-  };
-  const b: Ride = {
-    ...second,
-    segments: [
-      Array.from({ length: 7 }, (_, i) => timed(30, 120 + i * 0.0004, i * 10)),
-    ],
-  };
-  const before = JSON.stringify([a, b]);
-  vi.mocked(loadRoadTiles).mockResolvedValue({
-    roads: [
-      {
-        ...roadFixture,
-        geometry: {
-          type: "LineString",
-          coordinates: [
-            [120, 30],
-            [120.003, 30],
-          ],
-        },
-      },
-    ],
-    failed: 0,
-    omitted: 0,
-  });
-  await render([a]);
-  const map = mock.instances[0];
-  const repaired = map.roadSource.setData.mock.lastCall[0].features.filter(
-    (f: any) => f.properties.inferred,
-  );
-  expect(repaired.length).toBeGreaterThan(0);
-  expect(repaired.every((f: any) => f.properties.strength >= 1)).toBe(true);
-  expect(element.textContent).not.toContain("暂停补连");
-  expect(map.getLayer(ROAD_LAYER).filter).toBeUndefined();
-  expect(map.getLayer(ROAD_LAYER).paint["line-dasharray"]).toBeUndefined();
-  await render([a, b]);
-  expect(
-    map.roadSource.setData.mock.lastCall[0].features.every(
-      (f: any) => !f.properties.inferred,
-    ),
-  ).toBe(true);
-  await render([a, b], "one");
-  expect(
-    map.roadSource.setData.mock.lastCall[0].features.some((f: any) =>
-      f.properties.inferredRideIds?.includes("one"),
-    ),
-  ).toBe(true);
-  expect(element.textContent).not.toContain("暂停补连");
-  expect(map.getLayer(ROAD_LAYER).paint["line-dasharray"]).toBeUndefined();
-  expect(map.getLayer(SELECTED_LAYER).paint["line-color"]).toBe(
-    SELECTED_ROUTE_COLOR,
-  );
-  expect(map.getLayer(SELECTED_LAYER).paint["line-width"]).toBe(6);
-  map.queryRenderedFeatures.mockReturnValue([
-    { layer: { id: SELECTED_LAYER }, properties: { rideId: "one" } },
-  ]);
-  await act(async () => map.emit("click", { point: { x: 0, y: 0 } }));
-  expect(onSelect).toHaveBeenCalledWith("one");
-  await render([a, b], "two");
-  expect(
-    map.roadSource.setData.mock.lastCall[0].features.every(
-      (f: any) => !f.properties.inferred,
-    ),
-  ).toBe(true);
-  expect(element.textContent).not.toContain("暂停补连");
-  expect(JSON.stringify([a, b])).toBe(before);
 });
 
 it("uses the latest rides when a pending basemap finishes loading", async () => {

@@ -48,6 +48,18 @@ export async function saveRide(ride: Ride, raw: string) {
   );
   return result.rowsAffected > 0;
 }
+
+/** Read one original only when its detail charts need legacy speed fields. */
+export async function loadOriginalGpx(id: string): Promise<string | null> {
+  if (!desktop) return null;
+  const rows = await (
+    await db()
+  ).select<Array<{ raw_gpx: string }>>(
+    "SELECT raw_gpx FROM rides WHERE id=$1",
+    [id],
+  );
+  return rows[0]?.raw_gpx ?? null;
+}
 export async function renameRide(id: string, name: string) {
   await (
     await db()

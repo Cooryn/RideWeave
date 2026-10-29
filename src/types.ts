@@ -3,6 +3,8 @@ export type Point = {
   lon: number;
   elevation: number | null;
   time: string | null;
+  /** Recorded metres per second; undefined in records imported by older versions. */
+  speed?: number | null;
 };
 export type Ride = {
   id: string;
@@ -13,4 +15,10 @@ export type Ride = {
   segments: Point[][];
   filename: string;
   importedAt: string;
+};
+
+export type RidePreviewPoint = {
+  rideId: string;
+  lon: number;
+  lat: number;
 };
