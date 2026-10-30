@@ -1,6 +1,6 @@
 [package]
 name = "rideweave"
-version = "0.3.0"
+version = "1.0.0"
 description = "Personal cycling network"
 edition = "2021"
 license = "MIT"
