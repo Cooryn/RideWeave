@@ -12,6 +12,11 @@ import {
 } from "../src/mapData";
 import { ROAD_SOURCE, ROAD_LAYER } from "../src/useRoadOverlay";
 import { loadRoadTiles } from "../src/roadTiles";
+import {
+  DARK_MAP_BACKGROUND,
+  LIGHT_MAP_BACKGROUND,
+  roadPalette,
+} from "../src/mapTheme";
 vi.mock("../src/roadTiles", () => ({
   loadRoadTiles: vi.fn(async () => ({ roads: [], failed: 0, omitted: 0 })),
 }));
@@ -308,42 +313,95 @@ it("draws segmented WGS84 routes, selects them, hides them and fits visible boun
   expect(map.source.setData.mock.lastCall[0].features).toHaveLength(0);
 });
 
-it("initializes the active raw or heat geometry before style.load on theme changes and offline fallback", async () => {
+it("preserves the active raw or heat geometry through theme changes", async () => {
   await render();
   const map = mock.instances[0];
-  // Delay style.load so assertions inspect the first renderable style, not the repair callback.
-  map.setStyle.mockImplementation((style: any) => {
-    map.style = style;
-  });
   for (const dark of [true, false]) {
     await render([first, second], null, dark);
-    expect(map.getLayer(ROUTES_LAYER).paint["line-opacity"]).toBe(0);
+    expect(paint(map, ROUTES_LAYER, "line-opacity")).toBe(0);
     expect(map.getLayer(ROUTES_LAYER).paint["line-opacity-transition"]).toEqual(
       { duration: 0, delay: 0 },
     );
-    expect(map.getLayer(HIT_LAYER).layout.visibility).toBe("none");
+    expect(layout(map, HIT_LAYER, "visibility")).toBe("none");
   }
-  vi.mocked(fetch).mockRejectedValueOnce(new Error("offline"));
   await render([first, second], null, true);
-  expect(map.getLayer(ROUTES_LAYER).paint["line-opacity"]).toBe(0);
+  expect(paint(map, ROUTES_LAYER, "line-opacity")).toBe(0);
   await act(async () => {
     Array.from(element.querySelectorAll("button"))
       .find((b) => b.textContent === "骑行路线")!
       .click();
   });
   await render([first, second], null, false);
-  expect(map.getLayer(ROUTES_LAYER).paint["line-opacity"]).toBe(1);
-  expect(map.getLayer(ROUTES_CASING_LAYER).paint["line-opacity"]).toBe(1);
-  expect(map.getLayer(HIT_LAYER).layout.visibility).toBe("visible");
+  expect(paint(map, ROUTES_LAYER, "line-opacity")).toBe(1);
+  expect(paint(map, ROUTES_CASING_LAYER, "line-opacity")).toBe(1);
+  expect(layout(map, HIT_LAYER, "visibility")).toBe("visible");
   await render([first, second], "one", true);
-  expect(map.getLayer(ROUTES_LAYER).paint["line-opacity"]).toBe(0);
+  expect(paint(map, ROUTES_LAYER, "line-opacity")).toBe(0);
   expect(
     map.setFilter.mock.calls
       .filter((c: any[]) => c[0] === SELECTED_LAYER)
       .at(-1)?.[1],
   ).toEqual(["==", ["get", "rideId"], "one"]);
-  expect(map.getLayer(SELECTED_LAYER).paint["line-opacity"]).toBe(1);
+  expect(paint(map, SELECTED_LAYER, "line-opacity")).toBe(1);
   expect(mock.instances).toHaveLength(1);
+});
+it("transitions loaded basemap colors without reloading styles, tiles or moving the camera", async () => {
+  vi.mocked(fetch).mockResolvedValueOnce({
+    ok: true,
+    json: async () => ({
+      ...base,
+      layers: [
+        {
+          id: "background",
+          type: "background",
+          paint: { "background-color": "#fff" },
+        },
+        {
+          id: "water",
+          type: "fill",
+          source: "basemap",
+          "source-layer": "water",
+          paint: { "fill-color": "#fff" },
+        },
+      ],
+    }),
+  } as Response);
+  vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }));
+  const rides = [first];
+  await render(rides);
+  const map = mock.instances[0];
+  const styles = map.setStyle.mock.calls.length;
+  const fits = map.fitBounds.mock.calls.length;
+  const sources = map.style.sources;
+  for (const dark of [true, false, true]) {
+    await render(rides, null, dark);
+    expect(paint(map, "background", "background-color")).toBe(
+      dark ? DARK_MAP_BACKGROUND : LIGHT_MAP_BACKGROUND,
+    );
+    expect(paint(map, "water", "fill-color")).toBe(roadPalette(dark).water);
+    expect(paint(map, "water", "fill-color-transition")).toEqual({
+      duration: 280,
+      delay: 0,
+    });
+  }
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(loadRoadTiles).toHaveBeenCalledOnce();
+  expect(map.setStyle).toHaveBeenCalledTimes(styles);
+  expect(map.fitBounds).toHaveBeenCalledTimes(fits);
+  expect(map.style.sources).toBe(sources);
+  expect(mock.instances).toEqual([map]);
+
+  vi.mocked(window.matchMedia).mockReturnValue({
+    matches: true,
+  } as MediaQueryList);
+  await render(rides);
+  expect(paint(map, "background", "background-color")).toBe(
+    LIGHT_MAP_BACKGROUND,
+  );
+  expect(paint(map, "water", "fill-color-transition")).toEqual({
+    duration: 0,
+    delay: 0,
+  });
 });
 it("switches between heat and original routes and focuses selected rides", async () => {
   const near: Ride = {
@@ -512,6 +570,11 @@ it("keeps local tracks on network failure and can retry the basemap", async () =
   expect(element.textContent).toContain("本地骑行数据仍已保留");
   expect(map.style.sources[RIDES_SOURCE].data.features).toHaveLength(1);
   expect(map.style.sources.basemap).toBeUndefined();
+  await render([first], null, true);
+  expect(paint(map, "background", "background-color")).toBe(
+    DARK_MAP_BACKGROUND,
+  );
+  expect(fetch).toHaveBeenCalledOnce();
   await act(async () =>
     Array.from(element.querySelectorAll("button"))
       .find((b) => b.textContent === "重试底图")!
@@ -520,7 +583,7 @@ it("keeps local tracks on network failure and can retry the basemap", async () =
   expect(map.style.sources.basemap).toBeDefined();
   expect(element.textContent).not.toContain("本地骑行数据仍已保留");
 });
-it("ignores a stale theme response and disposes the map", async () => {
+it("applies the latest theme to an in-flight style response and disposes the map", async () => {
   let resolve!: (r: any) => void;
   vi.mocked(fetch).mockReturnValueOnce(
     new Promise((r) => {
@@ -531,8 +594,23 @@ it("ignores a stale theme response and disposes the map", async () => {
   await render([second], "two", true);
   const map = mock.instances[0];
   const count = map.setStyle.mock.calls.length;
-  await act(async () => resolve(response()));
-  expect(map.setStyle).toHaveBeenCalledTimes(count);
+  expect(fetch).toHaveBeenCalledOnce();
+  await act(async () =>
+    resolve({
+      ok: true,
+      json: async () => ({
+        ...base,
+        layers: [{ id: "background", type: "background" }],
+      }),
+    }),
+  );
+  expect(map.setStyle).toHaveBeenCalledTimes(count + 1);
+  expect(map.getLayer("background").paint["background-color"]).toBe(
+    DARK_MAP_BACKGROUND,
+  );
+  expect(
+    map.style.sources[RIDES_SOURCE].data.features.map((f: any) => f.id),
+  ).toEqual(["two"]);
   await act(async () => root.render(null));
   expect(map.remove).toHaveBeenCalledOnce();
 });

@@ -179,6 +179,46 @@ const click = async (text: string) => {
   expect(button).toBeDefined();
   await act(async () => button!.click());
 };
+it("keeps recent rides at their original scroll position after scrolling and closing details", async () => {
+  const fixture: Ride = {
+    id: "one",
+    name: "第一条",
+    date: null,
+    distance: 1,
+    duration: null,
+    segments: [],
+    filename: "one.gpx",
+    importedAt: "",
+  };
+  data.rides = [fixture, { ...fixture, id: "two", name: "第二条" }];
+  await act(async () => root.render(null));
+  await act(async () => root.render(<App />));
+  const open = async () =>
+    act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(".ride-list .ride-main")!
+        .click(),
+    );
+  const close = async () =>
+    act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="关闭详情"]')!
+        .click(),
+    );
+
+  for (const position of [0, 180]) {
+    const list = container.querySelector<HTMLDivElement>(".ride-list")!;
+    list.scrollTop = position;
+    await open();
+    const detail = container.querySelector<HTMLDivElement>(".detail")!;
+    expect(detail.scrollTop).toBe(0);
+    detail.scrollTop = 320;
+    await close();
+    expect(
+      container.querySelector<HTMLDivElement>(".ride-list")!.scrollTop,
+    ).toBe(position);
+  }
+});
 const raw =
   '<gpx><trk><name>测试路线</name><trkseg><trkpt lat="30" lon="120"><time>2026-10-01T00:00:00Z</time></trkpt><trkpt lat="30.01" lon="120.01"><time>2026-10-01T01:00:00Z</time></trkpt></trkseg></trk></gpx>';
 const drag = async (payload: DragDropEvent) =>
@@ -580,6 +620,44 @@ it("applies and remembers explicit settings themes and keeps them in sync with t
       .querySelector('[aria-label="使用浅色主题"]')
       ?.getAttribute("aria-pressed"),
   ).toBe("true");
+});
+
+it("retargets rapid theme changes and cleans up the transition after completion or unmount", async () => {
+  await act(async () => root.render(null));
+  vi.useFakeTimers();
+  try {
+    await act(async () => root.render(<App />));
+    const map = container.querySelector('[data-testid="map"]');
+    const originalTheme = document.documentElement.dataset.theme;
+    const toggle = async () =>
+      act(async () =>
+        container.querySelector<HTMLButtonElement>(".theme-toggle")!.click(),
+      );
+    await toggle();
+    expect(document.documentElement.classList.contains("theme-changing")).toBe(
+      true,
+    );
+    await act(async () => vi.advanceTimersByTime(180));
+    await toggle();
+    await act(async () => vi.advanceTimersByTime(140));
+    expect(document.documentElement.classList.contains("theme-changing")).toBe(
+      true,
+    );
+    expect(document.documentElement.dataset.theme).toBe(originalTheme);
+    expect(localStorage.getItem("rideweave-theme")).toBe(originalTheme);
+    expect(container.querySelector('[data-testid="map"]')).toBe(map);
+    await act(async () => vi.advanceTimersByTime(180));
+    expect(document.documentElement.classList.contains("theme-changing")).toBe(
+      false,
+    );
+    await toggle();
+    await act(async () => root.render(null));
+    expect(document.documentElement.classList.contains("theme-changing")).toBe(
+      false,
+    );
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it("uses integrated window controls and reports native failures", async () => {

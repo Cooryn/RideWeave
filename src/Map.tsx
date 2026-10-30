@@ -54,13 +54,14 @@ export default function RideMap({
   const element = useRef<HTMLDivElement>(null);
   const map = useRef<VectorMap | null>(null);
   const previewMarker = useRef<Marker | null>(null);
+  const baseStyle = useRef<StyleSpecification | null>(null);
   const [error, setError] = useState("");
   const [fatal, setFatal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [retry, setRetry] = useState(0);
   const displayMode = selected ? "route" : roadMode;
-  const latest = useRef({ rides, selected, onSelect, displayMode });
-  latest.current = { rides, selected, onSelect, displayMode };
+  const latest = useRef({ rides, selected, onSelect, displayMode, dark });
+  latest.current = { rides, selected, onSelect, displayMode, dark };
 
   function fit(all = false) {
     const current = latest.current;
@@ -173,7 +174,7 @@ export default function RideMap({
       m.remove();
       map.current = null;
     };
-    // A theme change reloads the style below, preserving the camera and map instance.
+    // Theme changes update paint on the existing map and retain its loaded tiles.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -201,9 +202,10 @@ export default function RideMap({
         )
           throw new Error("Invalid map style");
         if (!active) return;
+        baseStyle.current = style;
         m.setStyle(
           withRides(
-            drivingRoadStyle(style, dark),
+            drivingRoadStyle(style, latest.current.dark),
             latest.current.rides,
             latest.current.selected,
             latest.current.displayMode,
@@ -212,10 +214,11 @@ export default function RideMap({
         );
       } catch {
         if (!active) return;
+        baseStyle.current = null;
         setError("在线底图暂时无法加载，本地骑行数据仍已保留。联网后可重试。");
         m.setStyle(
           withRides(
-            localMapStyle(dark),
+            localMapStyle(latest.current.dark),
             latest.current.rides,
             latest.current.selected,
             latest.current.displayMode,
@@ -232,7 +235,37 @@ export default function RideMap({
       controller.abort();
       window.clearTimeout(timeout);
     };
-  }, [dark, retry]);
+  }, [retry]);
+
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    const updateColors = () => {
+      const style = baseStyle.current
+        ? drivingRoadStyle(baseStyle.current, dark)
+        : localMapStyle(dark);
+      const duration = window.matchMedia?.("(prefers-reduced-motion: reduce)")
+        .matches
+        ? 0
+        : 280;
+      for (const layer of style.layers) {
+        if (!m.getLayer(layer.id) || !("paint" in layer)) continue;
+        for (const [property, value] of Object.entries(layer.paint ?? {})) {
+          if (!property.endsWith("-color")) continue;
+          m.setPaintProperty(layer.id, `${property}-transition`, {
+            duration,
+            delay: 0,
+          });
+          m.setPaintProperty(layer.id, property, value);
+        }
+      }
+    };
+    m.on("style.load", updateColors);
+    updateColors();
+    return () => {
+      m.off("style.load", updateColors);
+    };
+  }, [dark]);
 
   useEffect(() => {
     fit();

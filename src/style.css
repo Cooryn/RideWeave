@@ -18,6 +18,24 @@
   --border: #e0e2e6;
   --soft: #e9ebee;
   --green: #416d00;
+  --theme-transition:
+    background-color 280ms ease, color 280ms ease, border-color 280ms ease,
+    box-shadow 280ms ease, fill 280ms ease, stroke 280ms ease;
+}
+/* Limit color transitions to an explicit theme change, including portal tooltips. */
+@media (prefers-reduced-motion: no-preference) {
+  :where(
+    html.theme-changing,
+    .theme-changing body,
+    .theme-changing .app,
+    .theme-changing .app *,
+    .theme-changing .app *::before,
+    .theme-changing .app *::after,
+    .theme-changing .chart-tooltip,
+    .theme-changing .chart-tooltip *
+  ) {
+    transition: var(--theme-transition);
+  }
 }
 * {
   box-sizing: border-box;
@@ -150,18 +168,49 @@ small {
   margin: 0 14px 17px;
 }
 nav {
+  --nav-row-height: 48px;
+  --nav-gap: 9px;
+  --nav-index: 0;
   display: grid;
-  gap: 9px;
+  grid-auto-rows: var(--nav-row-height);
+  gap: var(--nav-gap);
+  position: relative;
+  isolation: isolate;
+}
+nav[data-page="history"] {
+  --nav-index: 1;
+}
+nav[data-page="stats"] {
+  --nav-index: 2;
+}
+nav[data-page="settings"] {
+  --nav-index: 3;
+}
+nav::before {
+  content: "";
+  position: absolute;
+  inset: 6px 6px auto;
+  height: var(--nav-row-height);
+  border-radius: 19px;
+  background: var(--nav-selection, var(--bg));
+  pointer-events: none;
+  transform: translateY(
+    calc(var(--nav-index) * (var(--nav-row-height) + var(--nav-gap)))
+  );
+  transition:
+    transform 220ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    background-color 280ms ease;
 }
 nav button {
+  position: relative;
   padding: 14px;
   justify-content: flex-start;
   font-size: 13px;
   color: #77847e;
+  transition: color 160ms ease;
 }
 nav .selected {
   color: var(--green);
-  background: var(--soft);
   font-weight: 650;
 }
 .nav-dot {
@@ -170,6 +219,16 @@ nav .selected {
   background: var(--green);
   border-radius: 50%;
   margin-left: auto;
+  opacity: 0;
+  transform: scale(0.6);
+  transition:
+    opacity 160ms ease,
+    transform 220ms ease,
+    background-color 280ms ease;
+}
+nav .selected .nav-dot {
+  opacity: 1;
+  transform: none;
 }
 .sidebar-bottom {
   margin-top: auto;
@@ -243,6 +302,64 @@ header {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 26px;
+}
+/* Animate mounted page content without remounting the retained map. */
+.page-heading h1,
+.content
+  > :is(
+    .stats-grid,
+    .map-layout:not([hidden]),
+    .surface,
+    .analytics,
+    .preferences
+  ) {
+  animation: page-enter 220ms cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+}
+.ride-panel > :is(.detail, .ride-list) {
+  animation: ride-panel-enter 180ms cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+}
+.ride-panel > .ride-list {
+  --panel-enter-x: -6px;
+}
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ride-panel-enter {
+  from {
+    opacity: 0;
+    transform: translateX(var(--panel-enter-x, 6px));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-heading h1,
+  .content
+    > :is(
+      .stats-grid,
+      .map-layout:not([hidden]),
+      .surface,
+      .analytics,
+      .preferences
+    ),
+  .ride-panel > :is(.detail, .ride-list) {
+    animation: none;
+  }
+  nav::before,
+  nav button,
+  .nav-dot,
+  .theme-toggle svg {
+    transition: none;
+  }
 }
 .eyebrow {
   font-size: 9px;
@@ -1151,7 +1268,6 @@ nav button {
   font-size: 14px;
 }
 nav .selected {
-  background: var(--bg);
   color: var(--green);
 }
 .journey {
@@ -1183,6 +1299,38 @@ header {
   margin-right: 14px;
   border-radius: 50%;
   background: var(--surface);
+}
+.theme-toggle {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+.theme-toggle svg {
+  position: absolute;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .theme-changing .theme-toggle svg {
+    transition:
+      opacity 200ms ease,
+      transform 280ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+}
+.theme-toggle-sun {
+  opacity: 0;
+  transform: rotate(-60deg) scale(0.6);
+}
+.theme-toggle-moon {
+  opacity: 1;
+  transform: none;
+}
+[data-theme="dark"] .theme-toggle-sun {
+  opacity: 1;
+  transform: none;
+}
+[data-theme="dark"] .theme-toggle-moon {
+  opacity: 0;
+  transform: rotate(60deg) scale(0.6);
 }
 .window-controls button {
   width: 38px;
@@ -1368,8 +1516,10 @@ main {
   background: #a9ff00;
   color: #191b1e;
 }
+[data-theme="light"] nav {
+  --nav-selection: #e9f6d4;
+}
 [data-theme="light"] nav .selected {
-  background: #e9f6d4;
   color: #416d00;
 }
 [data-theme="light"] .stat-card,

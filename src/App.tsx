@@ -1,5 +1,5 @@
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bike,
   Map,
@@ -63,6 +63,15 @@ export default function App() {
   );
   const input = useRef<HTMLInputElement>(null),
     lock = useRef(false);
+  const recentScrollTop = useRef(0);
+  const themeInitialized = useRef(false);
+  const recentListRef = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return;
+    node.scrollTop = recentScrollTop.current;
+    return () => {
+      recentScrollTop.current = node.scrollTop;
+    };
+  }, []);
   useEffect(() => {
     loadRides()
       .then(setRides)
@@ -72,7 +81,14 @@ export default function App() {
       );
   }, []);
   useEffect(() => {
-    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    const element = document.documentElement;
+    if (themeInitialized.current) element.classList.add("theme-changing");
+    themeInitialized.current = true;
+    element.dataset.theme = dark ? "dark" : "light";
+    const timeout = window.setTimeout(
+      () => element.classList.remove("theme-changing"),
+      320,
+    );
     localStorage.setItem("rideweave-theme", dark ? "dark" : "light");
     if (desktop) {
       const background = getComputedStyle(document.documentElement)
@@ -82,6 +98,10 @@ export default function App() {
         .setBackgroundColor(background || (dark ? "#080b0c" : "#f2f3f5"))
         .catch(console.error);
     }
+    return () => {
+      window.clearTimeout(timeout);
+      element.classList.remove("theme-changing");
+    };
   }, [dark]);
   const summary = stats(rides),
     current = rides.find((r) => r.id === selected);
@@ -318,7 +338,7 @@ export default function App() {
           <div>RideWeave</div>
         </div>
 
-        <nav>
+        <nav data-page={page} aria-label="主导航">
           {(
             [
               { id: "map", label: "骑行地图", icon: Map },
@@ -330,11 +350,12 @@ export default function App() {
             <button
               key={n.id}
               className={page === n.id ? "selected" : ""}
+              aria-current={page === n.id ? "page" : undefined}
               onClick={() => setPage(n.id)}
             >
               <n.icon size={19} />
               {n.label}
-              {page === n.id && <span className="nav-dot" />}
+              <span className="nav-dot" aria-hidden="true" />
             </button>
           ))}
         </nav>
@@ -350,11 +371,17 @@ export default function App() {
           <div className="titlebar-drag" data-tauri-drag-region />
           <div className="header-actions">
             <button
-              className="icon-button"
+              className="icon-button theme-toggle"
               title={dark ? "切换浅色" : "切换深色"}
+              aria-label={dark ? "切换浅色" : "切换深色"}
               onClick={() => setDark(!dark)}
             >
-              {dark ? <Sun size={19} /> : <Moon size={19} />}
+              <Sun className="theme-toggle-sun" size={19} aria-hidden="true" />
+              <Moon
+                className="theme-toggle-moon"
+                size={19}
+                aria-hidden="true"
+              />
             </button>
             <WindowControls />
           </div>
@@ -362,7 +389,7 @@ export default function App() {
         <div className="content">
           <div className="page-heading">
             <div>
-              <h1>
+              <h1 key={page}>
                 {
                   {
                     map: "骑行地图",
@@ -508,7 +535,7 @@ export default function App() {
                         <X size={18} />
                       </button>
                     </div>
-                    <div className="detail">
+                    <div key={`detail-${current.id}`} className="detail">
                       <span className="detail-badge">
                         <Bike size={15} /> 骑行记录
                       </span>
@@ -635,7 +662,7 @@ export default function App() {
                         <ArrowUpRight size={18} />
                       </button>
                     </div>
-                    <div className="ride-list">
+                    <div key="recent" ref={recentListRef} className="ride-list">
                       {rides.length ? (
                         list(ordered.slice(0, 20))
                       ) : (
