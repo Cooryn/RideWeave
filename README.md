@@ -2,7 +2,7 @@
 
 > 把每一次出发，织成自己的骑行版图。
 
-RideWeave 是一款 Windows 和 Android 个人骑行轨迹管理应用。导入 GPX 文件，就能在地图上回顾路线、看看常骑的道路，再用图表和统计发现自己的骑行节奏。
+RideWeave 是一款 Android 个人骑行轨迹管理应用。导入 GPX 文件，就能在地图上回顾路线、看看常骑的道路，再用图表和统计发现自己的骑行节奏。
 
 **本地保存 · 无需账户 · 浅色 / 深色主题**
 
@@ -19,17 +19,13 @@ RideWeave 是一款 Windows 和 Android 个人骑行轨迹管理应用。导入 
 
 ### 1. 安装并打开
 
-Windows 可从 [下载页面](https://github.com/Cooryn/RideWeave/releases/latest) 获取 x64 安装包（文件名以 `x64-setup.exe` 结尾）。
-
 Android 版支持 Android 10 及以上，使用支持 WebGL 的较新系统 WebView。手机请安装签名的 ARM64 APK，x86_64 APK 用于对应的模拟器。首次侧载时按系统提示授权文件管理器安装应用。
-
-安装时如提示缺少 WebView2，按提示联网安装即可。第一次打开没有骑行记录？很正常，版图等你亲自点亮。
 
 ### 2. 导入 GPX
 
-各页面都可以点击 **“导入 GPX”**。Windows 支持从资源管理器拖入，Android 可在系统文件选择器中多选，也可从将文件识别为 GPX 的应用分享给 RideWeave。
+各页面都可以点击 **“导入 GPX”**，使用系统文件选择器，也可从将文件识别为 GPX 的应用分享给 RideWeave。
 
-- 支持一次导入多个文件，每个文件不超过 **50 MB**。Windows 文件选择器可用 `Ctrl` / `Shift`，Android 通常长按第一个文件后再点选其他文件。
+- 支持一次导入多个文件，每个文件不超过 **50 MB**。在系统文件选择器中，通常可长按第一个文件后再点选其他文件。
 - 导入后会显示新增、重复和失败数量；有文件失败时可以展开查看原因，其他文件仍会继续导入。
 - 相同轨迹会自动跳过，即使改过文件名也不用担心重复导入；同一路线在不同日期的骑行会分别保留。
 - 导入不会移动或修改源文件。
@@ -84,15 +80,7 @@ Android 版支持 Android 10 及以上，使用支持 WebGL 的较新系统 WebV
 
 骑行记录、轨迹点和导入的原始 GPX 保存在本机，关闭后重新打开会自动加载，无需登录或云同步。
 
-Windows 数据文件位置：
-
-```text
-%APPDATA%\com.rideweave.desktop\rideweave.db
-```
-
-备份时先退出 RideWeave，再复制整个 `com.rideweave.desktop` 文件夹；同目录下的数据库附属文件也要一起保留。设置页的 **“本地数据 → 数据位置与备份”** 随时可以找到这份说明。
-
-Windows 和 Android 都可在 **“设置 → 本地数据 → 导出备份”** 保存一个 `.rideweave-backup` 文件，包含轨迹、原始 GPX、记录名称和导入时间。将 Windows 导出的文件复制到手机，再点 Android 版的 **“恢复备份”**。恢复会合并记录，同一轨迹保留手机上的版本。Android 的工作数据库保存在应用私有目录。两端的外观偏好分别保存在各自设备。
+工作数据库保存在应用私有目录。使用 **“设置 → 本地数据 → 导出备份”** 保存 `.rideweave-backup` 文件，包含轨迹、原始 GPX、记录名称和导入时间。把 Android 或 Windows 导出的备份复制到手机后，点 **“恢复备份”** 合并记录。重复记录保留手机上的版本，外观偏好由各设备单独保存。
 
 ## 几个使用小贴士
 
@@ -104,7 +92,7 @@ Windows 和 Android 都可在 **“设置 → 本地数据 → 导出备份”**
 
 ## 开发与构建
 
-Windows 端使用 `npm ci` 安装前端依赖，运行 `npm run tauri dev` 开发，或用 `npm run tauri build -- --features custom-protocol` 打包。
+Android 版在 `coryn/android-parity` 分支维护。Windows 版的源码和打包配置在 `main` 分支。
 
 Android 端需要 JDK、Android SDK 37、NDK、Android SDK Build-Tools 和 Platform-Tools。设置 `JAVA_HOME`、`ANDROID_HOME` 和 `NDK_HOME` 后，安装两个 Rust Android 目标。
 

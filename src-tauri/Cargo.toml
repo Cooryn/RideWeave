@@ -21,8 +21,5 @@ futures-util = "0.3"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite"] }
 tempfile = "3"
 
-[target.'cfg(windows)'.dependencies]
-rfd = { version = "0.16", default-features = false }
-
 [features]
 custom-protocol = ["tauri/custom-protocol"]

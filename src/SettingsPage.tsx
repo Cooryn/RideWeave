@@ -100,9 +100,7 @@ export default function SettingsPage({
               <div className="preference-label">
                 <h3>骑行备份</h3>
                 <p>
-                  {android
-                    ? "可恢复 Windows 或 Android 导出的 RideWeave 备份。"
-                    : "导出一个备份文件，可将完整的骑行记录迁移到 Android。"}
+                  可恢复 Windows 或 Android 导出的 RideWeave 备份。
                 </p>
               </div>
               <div className="backup-actions">
@@ -143,23 +141,9 @@ export default function SettingsPage({
               <ChevronDown size={17} />
             </summary>
             <div>
-              {android ? (
-                <p>
-                  数据库位于 Android
-                  应用私有目录。请通过上方的按钮导出到你选择的位置。导入的源 GPX
-                  文件仍在原位置。
-                </p>
-              ) : (
-                <>
-                  <p>Windows 数据文件位置</p>
-                  <code>%APPDATA%\com.rideweave.desktop\rideweave.db</code>
-                  <p>
-                    手动备份时先退出
-                    RideWeave，再复制整个数据文件夹，并保留数据库附属文件。导入的源
-                    GPX 文件仍在原位置。
-                  </p>
-                </>
-              )}
+              <p>
+                数据库位于 Android 应用私有目录。请通过上方的按钮导出到你选择的位置。导入的源 GPX 文件仍在原位置。
+              </p>
             </div>
           </details>
         </div>
@@ -234,11 +218,7 @@ export default function SettingsPage({
           <div className="preferences-footnote">
             <Bike size={14} />
             <span>
-              {android
-                ? "Android 版"
-                : nativeApp
-                  ? "Windows 桌面版"
-                  : "浏览器界面预览"}
+              {android ? "Android 版" : "浏览器界面预览"}
             </span>
             <span>本地保存 · 无需账户</span>
           </div>

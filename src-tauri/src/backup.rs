@@ -1,20 +1,21 @@
-#[cfg(any(test, target_os = "android"))]
 use sqlx::Row;
 use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection, SqlitePool};
-#[cfg(windows)]
-use std::fs::File;
 use std::path::Path;
+#[cfg(target_os = "android")]
 use tauri::{AppHandle, Manager};
+#[cfg(target_os = "android")]
 use tauri_plugin_sql::{DbInstances, DbPool};
 
+#[cfg(target_os = "android")]
 pub const DATABASE: &str = "sqlite:rideweave.db";
 pub const CREATE_RIDES: &str = "CREATE TABLE IF NOT EXISTS rides (id TEXT PRIMARY KEY, name TEXT NOT NULL, date TEXT, distance REAL NOT NULL, duration REAL, segments TEXT NOT NULL, raw_gpx TEXT NOT NULL, filename TEXT NOT NULL, imported_at TEXT NOT NULL);";
 const FORMAT_ID: i32 = 0x52575642;
 const FORMAT_VERSION: i32 = 1;
+#[cfg(target_os = "android")]
 const BACKUP_NAME: &str = "RideWeave.rideweave-backup";
-#[cfg(any(test, target_os = "android"))]
 const RIDE_COLUMNS: &str = "id,name,date,distance,duration,segments,raw_gpx,filename,imported_at";
 
+#[cfg(target_os = "android")]
 async fn ride_pool(app: &AppHandle) -> Result<SqlitePool, String> {
     let instances = app.state::<DbInstances>();
     let databases = instances.0.read().await;
@@ -24,6 +25,7 @@ async fn ride_pool(app: &AppHandle) -> Result<SqlitePool, String> {
     }
 }
 
+#[cfg(target_os = "android")]
 fn temporary_backup(app: &AppHandle) -> Result<tempfile::TempDir, String> {
     let cache = app.path().app_cache_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
@@ -51,71 +53,25 @@ async fn export_snapshot(pool: &SqlitePool, snapshot: &Path) -> Result<(), sqlx:
     output.close().await
 }
 
+#[cfg(target_os = "android")]
 #[tauri::command]
 pub async fn export_backup(app: AppHandle) -> Result<bool, String> {
     let pool = ride_pool(&app).await?;
-    #[cfg(windows)]
-    let destination = tauri::async_runtime::spawn_blocking(|| {
-        rfd::FileDialog::new()
-            .set_title("导出骑行备份")
-            .set_file_name(BACKUP_NAME)
-            .add_filter("RideWeave 备份", &["rideweave-backup"])
-            .save_file()
-    })
-    .await
-    .map_err(|e| e.to_string())?;
-    #[cfg(windows)]
-    let Some(destination) = destination
-    else {
-        return Ok(false);
-    };
-
     let temporary = temporary_backup(&app)?;
     let snapshot = temporary.path().join(BACKUP_NAME);
     export_snapshot(&pool, &snapshot)
         .await
         .map_err(|e| format!("无法生成备份：{e}"))?;
 
-    #[cfg(windows)]
-    {
-        let app_config = app.path().app_config_dir().map_err(|e| e.to_string())?;
-        tauri::async_runtime::spawn_blocking(move || {
-            if destination.extension().and_then(|ext| ext.to_str()) != Some("rideweave-backup") {
-                return Err("请将文件名以 .rideweave-backup 结尾".into());
-            }
-            let parent = destination.parent().ok_or("备份位置无效")?;
-            if parent.canonicalize().ok() == app_config.canonicalize().ok() {
-                return Err("请选择应用数据目录以外的位置".into());
-            }
-            let write = || -> std::io::Result<()> {
-                let mut output = tempfile::NamedTempFile::new_in(parent)?;
-                std::io::copy(&mut File::open(snapshot)?, output.as_file_mut())?;
-                output.as_file().sync_all()?;
-                output.persist(&destination)?;
-                Ok(())
-            };
-            write().map_err(|e| format!("无法保存备份：{e}"))?;
-            Ok(true)
-        })
-        .await
-        .map_err(|e| e.to_string())?
-    }
-    #[cfg(target_os = "android")]
-    {
-        crate::android::copy_backup(&app, &snapshot, true).await
-    }
-    #[cfg(not(any(windows, target_os = "android")))]
-    Ok(false)
+    crate::android::copy_backup(&app, &snapshot, true).await
 }
 
-#[cfg(any(test, target_os = "android"))]
 #[derive(Debug, PartialEq, serde::Serialize)]
 pub struct RestoreReport {
     pub added: u64,
     pub duplicates: u64,
 }
 
-#[cfg(any(test, target_os = "android"))]
 async fn restore_snapshot(pool: &SqlitePool, snapshot: &Path) -> Result<RestoreReport, String> {
     use futures_util::TryStreamExt;
     let mut source = SqliteConnection::connect_with(
@@ -201,7 +157,6 @@ async fn restore_snapshot(pool: &SqlitePool, snapshot: &Path) -> Result<RestoreR
     Ok(report)
 }
 
-#[cfg(any(test, target_os = "android"))]
 fn valid_segments(raw: &str) -> bool {
     let Ok(serde_json::Value::Array(segments)) = serde_json::from_str(raw) else {
         return false;

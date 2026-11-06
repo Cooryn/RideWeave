@@ -5,7 +5,6 @@ let connection: Promise<Database> | undefined;
 const db = () => (connection ??= Database.load("sqlite:rideweave.db"));
 export const nativeApp = isTauri();
 export const android = nativeApp && /\bAndroid\b/i.test(navigator.userAgent);
-export const desktop = nativeApp && !android;
 export async function loadRides(): Promise<Ride[]> {
   if (!nativeApp) return [];
   const rows = await (

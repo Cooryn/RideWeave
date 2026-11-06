@@ -97,40 +97,6 @@ small {
   height: 100vh;
   overflow: hidden;
 }
-.gpx-drop-overlay {
-  position: fixed;
-  inset: 10px;
-  z-index: 2000;
-  display: grid;
-  place-items: center;
-  padding: 30px;
-  border: 2px dashed var(--green);
-  border-radius: 22px;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
-  backdrop-filter: blur(4px);
-  pointer-events: none;
-  text-align: center;
-}
-.gpx-drop-overlay > div {
-  max-width: 100%;
-  padding: 30px;
-  border-radius: 22px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-}
-.gpx-drop-overlay svg {
-  color: var(--green);
-  margin-bottom: 16px;
-}
-.gpx-drop-overlay h2 {
-  margin: 0 0 12px;
-  font-size: 22px;
-}
-.gpx-drop-overlay p {
-  color: var(--muted);
-  font-size: 13px;
-  margin: 0;
-}
 .sidebar {
   width: 214px;
   flex-shrink: 0;
@@ -1289,8 +1255,7 @@ header {
   display: flex;
   align-items: center;
 }
-.header-actions,
-.window-controls {
+.header-actions {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1331,24 +1296,6 @@ header {
 [data-theme="dark"] .theme-toggle-moon {
   opacity: 0;
   transform: rotate(60deg) scale(0.6);
-}
-.window-controls button {
-  width: 38px;
-  height: 32px;
-  border-radius: 10px;
-  color: var(--muted);
-}
-.window-controls button:hover {
-  background: var(--soft);
-  color: var(--text);
-}
-.window-controls .window-close:hover {
-  background: #e43848;
-  color: white;
-}
-.window-error {
-  font-size: 11px;
-  color: #ff6580;
 }
 .content {
   padding-top: 30px;

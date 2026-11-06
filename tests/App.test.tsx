@@ -4,9 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { webcrypto } from "node:crypto";
 import type { Ride, RidePreviewPoint } from "../src/types";
-import type { DragDropEvent } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
-import { PhysicalPosition } from "@tauri-apps/api/dpi";
 vi.mock("@tauri-apps/api/core", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tauri-apps/api/core")>()),
   invoke: vi.fn(),
@@ -15,18 +13,14 @@ const data = vi.hoisted(() => ({
   mobile: false,
   rides: [] as Ride[],
   deleteError: "",
-  pendingLoad: null as Promise<Ride[]> | null,
 }));
 vi.mock("../src/storage", () => ({
-  get desktop() {
-    return !data.mobile;
-  },
   nativeApp: true,
   get android() {
     return data.mobile;
   },
   loadOriginalGpx: async () => null,
-  loadRides: async () => data.pendingLoad ?? [...data.rides],
+  loadRides: async () => [...data.rides],
   saveRide: async (ride: Ride) => {
     if (data.rides.some((r) => r.id === ride.id)) return false;
     data.rides.push(ride);
@@ -73,27 +67,6 @@ vi.mock("../src/Map", () => ({
     </>
   ),
 }));
-const windowApi = vi.hoisted(() => ({
-  minimize: vi.fn().mockResolvedValue(undefined),
-  toggleMaximize: vi.fn().mockResolvedValue(undefined),
-  close: vi.fn().mockResolvedValue(undefined),
-  isMaximized: vi.fn().mockResolvedValue(false),
-  onResized: vi.fn().mockResolvedValue(() => {}),
-}));
-const fileDrop = vi.hoisted(() => ({
-  handler: null as ((event: { payload: DragDropEvent }) => void) | null,
-  unlisten: vi.fn(),
-  subscribe: vi.fn(),
-}));
-vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => windowApi,
-}));
-vi.mock("@tauri-apps/api/webviewWindow", () => ({
-  getCurrentWebviewWindow: () => ({
-    setBackgroundColor: async () => {},
-    onDragDropEvent: fileDrop.subscribe,
-  }),
-}));
 import App from "../src/App";
 let root: Root, container: HTMLDivElement;
 beforeEach(async () => {
@@ -102,13 +75,6 @@ beforeEach(async () => {
   data.mobile = false;
   data.rides = [];
   data.deleteError = "";
-  data.pendingLoad = null;
-  fileDrop.handler = null;
-  fileDrop.unlisten.mockReset();
-  fileDrop.subscribe.mockReset().mockImplementation(async (handler) => {
-    fileDrop.handler = handler;
-    return fileDrop.unlisten;
-  });
   vi.mocked(invoke).mockReset();
   container = document.createElement("div");
   document.body.append(container);
@@ -229,150 +195,6 @@ it("keeps recent rides at their original scroll position after scrolling and clo
 });
 const raw =
   '<gpx><trk><name>测试路线</name><trkseg><trkpt lat="30" lon="120"><time>2026-10-01T00:00:00Z</time></trkpt><trkpt lat="30.01" lon="120.01"><time>2026-10-01T01:00:00Z</time></trkpt></trkseg></trk></gpx>';
-const drag = async (payload: DragDropEvent) =>
-  act(async () => fileDrop.handler!({ payload }));
-const location = new PhysicalPosition(20, 30);
-it("imports native drops from any page through the same deduplication and partial-failure flow", async () => {
-  await click("历史记录");
-  const paths = [
-    "C:\\rides\\one.GPX",
-    "C:\\rides\\copy.gpx",
-    "C:\\rides\\bad.gpx",
-    "C:\\rides\\image.png",
-    "C:\\rides\\large.gpx",
-    "C:\\rides\\missing.gpx",
-  ];
-  vi.mocked(invoke).mockImplementation(async (_command, args) => {
-    const path = (args as { path: string }).path;
-    if (path.endsWith("large.gpx")) throw new Error("文件超过 50 MB 限制");
-    if (path.endsWith("missing.gpx")) throw new Error("无法打开文件");
-    return path.endsWith("bad.gpx") ? "<gpx/>" : raw;
-  });
-  await drag({ type: "enter", paths, position: location });
-  expect(container.querySelector(".gpx-drop-overlay")?.textContent).toContain(
-    "松开以导入 GPX",
-  );
-  await drag({ type: "over", position: location });
-  expect(invoke).not.toHaveBeenCalled();
-  await drag({ type: "leave" });
-  expect(container.querySelector(".gpx-drop-overlay")).toBeNull();
-  await drag({ type: "enter", paths, position: location });
-  await act(async () => {
-    fileDrop.handler!({
-      payload: {
-        type: "drop",
-        paths: [...paths, paths[0]],
-        position: location,
-      },
-    });
-    await new Promise((resolve) => setTimeout(resolve, 60));
-  });
-  expect(container.querySelector(".gpx-drop-overlay")).toBeNull();
-  expect(container.querySelector("h1")?.textContent).toBe("历史记录");
-  expect(container.textContent).toContain("新增 1 条，重复 1 条，失败 4 条");
-  expect(container.textContent).toContain("image.png：仅支持 GPX 文件");
-  expect(container.textContent).toContain("large.gpx：");
-  expect(data.rides).toHaveLength(1);
-  expect(invoke).toHaveBeenCalledTimes(5);
-  expect(invoke).toHaveBeenCalledWith("read_dropped_gpx", { path: paths[0] });
-  expect(fileDrop.subscribe).toHaveBeenCalledOnce();
-});
-
-it("rejects additional drops while importing and accepts another batch after completion", async () => {
-  let resolveRead!: (text: string) => void;
-  vi.mocked(invoke).mockReturnValueOnce(
-    new Promise<string>((resolve) => {
-      resolveRead = resolve;
-    }),
-  );
-  const drop = {
-    type: "drop",
-    paths: ["C:\\rides\\one.gpx"],
-    position: location,
-  } as const;
-  await drag({ ...drop, paths: [...drop.paths] });
-  await click("设置");
-  await drag({ type: "enter", paths: [...drop.paths], position: location });
-  expect(container.querySelector(".gpx-drop-overlay")?.textContent).toContain(
-    "正在处理文件",
-  );
-  await drag({ ...drop, paths: [...drop.paths] });
-  expect(container.textContent).toContain("正在处理文件，请完成后再次拖入");
-  expect(invoke).toHaveBeenCalledOnce();
-  await act(async () => {
-    resolveRead(raw);
-    await new Promise((resolve) => setTimeout(resolve, 60));
-  });
-  expect(data.rides).toHaveLength(1);
-  vi.mocked(invoke).mockResolvedValueOnce(raw);
-  await act(async () => {
-    fileDrop.handler!({ payload: { ...drop, paths: [...drop.paths] } });
-    await new Promise((resolve) => setTimeout(resolve, 60));
-  });
-  expect(container.textContent).toContain("新增 0 条，重复 1 条，失败 0 条");
-  expect(invoke).toHaveBeenCalledTimes(2);
-});
-
-it("waits for database readiness before reading any dropped file", async () => {
-  let resolveLoad!: (rides: Ride[]) => void;
-  data.pendingLoad = new Promise((resolve) => {
-    resolveLoad = resolve;
-  });
-  await act(async () => root.render(null));
-  await act(async () => root.render(<App />));
-  const drop = {
-    type: "drop",
-    paths: ["/synthetic/one.gpx"],
-    position: location,
-  } as const;
-  await drag({ ...drop, paths: [...drop.paths] });
-  expect(container.textContent).toContain("本地数据尚未就绪");
-  expect(invoke).not.toHaveBeenCalled();
-  await act(async () => {
-    data.pendingLoad = null;
-    resolveLoad([]);
-  });
-  vi.mocked(invoke).mockResolvedValue(raw);
-  await act(async () => {
-    fileDrop.handler!({ payload: { ...drop, paths: [...drop.paths] } });
-    await new Promise((resolve) => setTimeout(resolve, 60));
-  });
-  expect(data.rides).toHaveLength(1);
-  expect(container.textContent).toContain("新增 1 条，重复 0 条，失败 0 条");
-});
-
-it("reports unavailable native drop handling and cleans up subscriptions that resolve after unmount", async () => {
-  await act(async () => root.render(null));
-  expect(fileDrop.unlisten).toHaveBeenCalledOnce();
-  fileDrop.subscribe.mockRejectedValueOnce(new Error("unavailable"));
-  await act(async () => root.render(<App />));
-  expect(container.textContent).toContain(
-    "拖入导入暂不可用，请使用“导入 GPX”按钮",
-  );
-  expect(
-    container.querySelector<HTMLButtonElement>(".page-heading .primary")
-      ?.disabled,
-  ).toBe(false);
-  await act(async () => root.render(null));
-  const unlisten = vi.fn();
-  let resolveListener!: (callback: () => void) => void;
-  fileDrop.subscribe.mockImplementationOnce((handler) => {
-    fileDrop.handler = handler;
-    return new Promise((resolve) => {
-      resolveListener = resolve;
-    });
-  });
-  await act(async () => root.render(<App />));
-  await act(async () => root.render(null));
-  await act(async () => {
-    resolveListener(unlisten);
-  });
-  expect(unlisten).toHaveBeenCalledOnce();
-  await drag({ type: "enter", paths: ["late.gpx"], position: location });
-  expect(container.textContent).toBe("");
-  expect(invoke).not.toHaveBeenCalled();
-});
-
 it("keeps the same map mounted through sidebar navigation and preserves its mode through theme changes", async () => {
   const originalMap = container.querySelector('[data-testid="map"]')!;
   const workspace = originalMap.closest<HTMLDivElement>(".map-layout")!;
@@ -668,37 +490,9 @@ it("retargets rapid theme changes and cleans up the transition after completion 
   }
 });
 
-it("uses integrated window controls and reports native failures", async () => {
-  for (const [label, method] of [
-    ["最小化窗口", "minimize"],
-    ["最大化窗口", "toggleMaximize"],
-    ["关闭窗口", "close"],
-  ] as const) {
-    await act(async () =>
-      container
-        .querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
-        .click(),
-    );
-    expect(windowApi[method]).toHaveBeenCalled();
-  }
-  windowApi.minimize.mockRejectedValueOnce(new Error("denied"));
-  await act(async () =>
-    container
-      .querySelector<HTMLButtonElement>('button[aria-label="最小化窗口"]')!
-      .click(),
-  );
-  expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-    "窗口操作失败",
-  );
-  expect(
-    container.querySelector("header[data-tauri-drag-region]"),
-  ).not.toBeNull();
-});
-
 it("imports Android shares, handles system back and merges a selected backup", async () => {
   await act(async () => root.render(null));
   data.mobile = true;
-  fileDrop.subscribe.mockClear();
   let shared = [
     { token: "a", name: "骑行.gpx" },
     { token: "b", name: "副本.gpx" },
@@ -724,7 +518,6 @@ it("imports Android shares, handles system back and merges a selected backup", a
   });
   expect(container.querySelector(".android-app")).not.toBeNull();
   expect(container.querySelector(".window-controls")).toBeNull();
-  expect(fileDrop.subscribe).not.toHaveBeenCalled();
   expect(
     container.querySelector<HTMLInputElement>('input[type="file"]')?.multiple,
   ).toBe(true);

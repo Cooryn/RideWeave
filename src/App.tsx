@@ -1,4 +1,3 @@
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -28,16 +27,13 @@ import RideMap from "./Map";
 import RideCharts from "./RideCharts";
 import StatsDashboard from "./StatsDashboard";
 import SettingsPage from "./SettingsPage";
-import { useGpxDrop, type GpxImportFile } from "./useGpxDrop";
 import type { StatsPeriod } from "./rideAnalytics";
 import type { RoadMode } from "./useRoadOverlay";
-import WindowControls from "./WindowControls";
 import type { Ride, RidePreviewPoint } from "./types";
 import { parseGpx } from "./gpx";
 import { stats, number, dateLabel } from "./stats";
 import {
   android,
-  desktop,
   nativeApp,
   loadRides,
   saveRide,
@@ -46,6 +42,7 @@ import {
 } from "./storage";
 type Page = "map" | "history" | "stats" | "settings";
 type BackupReport = { added: number; duplicates: number };
+type GpxImportFile = Pick<File, "name" | "text"> & { size?: number };
 type SharedGpx = { token: string; name: string; size?: number | null };
 
 export default function App() {
@@ -104,13 +101,6 @@ export default function App() {
     localStorage.setItem("rideweave-theme", dark ? "dark" : "light");
     if (android) {
       void invoke("set_android_theme", { dark }).catch(console.error);
-    } else if (desktop) {
-      const background = getComputedStyle(document.documentElement)
-        .getPropertyValue("--bg")
-        .trim();
-      void getCurrentWebviewWindow()
-        .setBackgroundColor(background || (dark ? "#080b0c" : "#f2f3f5"))
-        .catch(console.error);
     }
     return () => {
       window.clearTimeout(timeout);
@@ -140,13 +130,6 @@ export default function App() {
       return s;
     });
   }
-  const dropPaths = useGpxDrop({
-    desktop,
-    ready,
-    busy,
-    onImport: importFiles,
-    onError: setError,
-  });
   useEffect(() => {
     if (!android || !ready || busy) return;
     const receive = async () => {
@@ -427,27 +410,6 @@ export default function App() {
     <div
       className={`app ${page === "map" ? "map-page" : ""}${android ? " android-app" : ""}`}
     >
-      {dropPaths !== null && (
-        <div className="gpx-drop-overlay" role="status" aria-live="polite">
-          <div>
-            <Download size={38} />
-            <h2>
-              {!ready
-                ? "正在读取本地数据…"
-                : busy
-                  ? "正在处理文件…"
-                  : dropPaths.some((path) => /\.gpx$/i.test(path))
-                    ? "松开以导入 GPX"
-                    : "请拖入 GPX 文件"}
-            </h2>
-            <p>
-              {!ready || busy
-                ? "请稍后再拖入文件"
-                : "支持多个文件，每个不超过 50 MB"}
-            </p>
-          </div>
-        </div>
-      )}
       <aside className="sidebar">
         <div className="brand">
           <span>
@@ -496,11 +458,11 @@ export default function App() {
         </div>
       </aside>
       <main>
-        <header data-tauri-drag-region={desktop || undefined}>
+        <header>
           {android ? (
             <span className="mobile-wordmark">RideWeave</span>
           ) : (
-            <div className="titlebar-drag" data-tauri-drag-region />
+            <div className="titlebar-drag" />
           )}
           <div className="header-actions">
             <button
@@ -516,7 +478,6 @@ export default function App() {
                 aria-hidden="true"
               />
             </button>
-            <WindowControls />
           </div>
         </header>
         <div className="content">
