@@ -1,4 +1,5 @@
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bike,
@@ -25,7 +26,14 @@ import RideMap from "./Map";
 import RideCharts from "./RideCharts";
 import StatsDashboard from "./StatsDashboard";
 import SettingsPage from "./SettingsPage";
-import { useGpxDrop, type GpxImportFile } from "./useGpxDrop";
+import { useGpxDrop } from "./useGpxDrop";
+import {
+  isZip,
+  maxGpxBytes,
+  pickedImportFile,
+  type GpxImportFile,
+  type ImportFile,
+} from "./gpxImport";
 import type { StatsPeriod } from "./rideAnalytics";
 import type { RoadMode } from "./useRoadOverlay";
 import WindowControls from "./WindowControls";
@@ -40,6 +48,59 @@ import {
   deleteRide,
 } from "./storage";
 type Page = "map" | "history" | "stats" | "settings";
+
+function ZipImportDialog({
+  onCancel,
+  onImport,
+}: {
+  onCancel: () => void;
+  onImport: (date: string) => void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = ref.current!;
+    dialog.showModal();
+    return () => dialog.close();
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className="zip-import-dialog"
+      aria-labelledby="zip-import-title"
+      aria-describedby="zip-import-help"
+      onCancel={(event) => {
+        event.preventDefault();
+        onCancel();
+      }}
+    >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          const fields = new FormData(event.currentTarget);
+          onImport(String(fields.get("earliestDate") ?? ""));
+        }}
+      >
+        <h2 id="zip-import-title">导入 ZIP 中的 GPX</h2>
+        <label>
+          最早导入日期
+          <input type="date" name="earliestDate" />
+        </label>
+        <p id="zip-import-help">
+          按轨迹出发的本地日期筛选，包含所选当天。设置日期后会跳过没有时间的轨迹。留空则导入所有日期。
+        </p>
+        <div className="zip-import-actions">
+          <button type="button" className="subtle" onClick={onCancel}>
+            取消
+          </button>
+          <button type="submit" className="primary">
+            开始导入
+          </button>
+        </div>
+      </form>
+    </dialog>
+  );
+}
+
 export default function App() {
   const [page, setPage] = useState<Page>("map"),
     [roadMode, setRoadMode] = useState<RoadMode>("heat"),
@@ -52,6 +113,7 @@ export default function App() {
     [ready, setReady] = useState(false),
     [error, setError] = useState(""),
     [report, setReport] = useState<string[]>([]),
+    [zipImport, setZipImport] = useState<ImportFile[] | null>(null),
     [edit, setEdit] = useState(false),
     [name, setName] = useState(""),
     [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -128,29 +190,70 @@ export default function App() {
   const dropPaths = useGpxDrop({
     desktop,
     ready,
-    busy,
-    onImport: importFiles,
+    busy: busy || zipImport !== null,
+    onImport: requestImport,
     onError: setError,
   });
-  async function importFiles(files: GpxImportFile[]) {
+  async function requestImport(files: ImportFile[]) {
+    if (lock.current || busy || zipImport) return;
+    if (files.some((file) => "gpxFiles" in file)) {
+      setZipImport(files);
+    } else {
+      await importFiles(files);
+    }
+  }
+
+  async function importFiles(files: ImportFile[], earliestDate = "") {
     if (lock.current) return;
     lock.current = true;
     setBusy(true);
     setError("");
     setReport([]);
     let added = 0,
-      duplicates = 0;
+      duplicates = 0,
+      tooOld = 0,
+      undated = 0;
     const failures: string[] = [];
+    const cutoff = earliestDate
+      ? new Date(`${earliestDate}T00:00:00`).getTime()
+      : null;
+    async function importGpx(file: GpxImportFile, archive?: string) {
+      try {
+        if (!/\.gpx$/i.test(file.name))
+          throw new Error("仅支持 GPX 文件或 ZIP 压缩包");
+        if (file.size !== undefined && file.size > maxGpxBytes)
+          throw new Error("文件超过 50 MB 限制");
+        const raw = await file.text();
+        const ride = await parseGpx(raw, file.name);
+        if (archive && cutoff !== null) {
+          if (!ride.date) {
+            undated++;
+            return;
+          }
+          if (Date.parse(ride.date) < cutoff) {
+            tooOld++;
+            return;
+          }
+        }
+        if (await saveRide(ride, raw)) added++;
+        else duplicates++;
+      } catch (e) {
+        const name = archive ? `${archive} / ${file.name}` : file.name;
+        failures.push(
+          `${name}：${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+    }
     try {
       for (const file of files) {
+        if (!("gpxFiles" in file)) {
+          await importGpx(file);
+          continue;
+        }
         try {
-          if (!/\.gpx$/i.test(file.name)) throw new Error("仅支持 GPX 文件");
-          if (file.size !== undefined && file.size > 50 * 1024 * 1024)
-            throw new Error("文件超过 50 MB 限制");
-          const raw = await file.text();
-          const ride = await parseGpx(raw, file.name);
-          if (await saveRide(ride, raw)) added++;
-          else duplicates++;
+          for await (const entry of file.gpxFiles()) {
+            await importGpx(entry, file.name);
+          }
         } catch (e) {
           failures.push(
             `${file.name}：${e instanceof Error ? e.message : String(e)}`,
@@ -160,8 +263,10 @@ export default function App() {
       setRides(await loadRides());
       setSelected(null);
       setFitKey((k) => k + 1);
+      const skipped =
+        cutoff === null ? "" : `，早于所选日期 ${tooOld} 条，无日期 ${undated} 条`;
       setReport([
-        `导入完成：新增 ${added} 条，重复 ${duplicates} 条，失败 ${failures.length} 条。`,
+        `导入完成：新增 ${added} 条，重复 ${duplicates} 条${skipped}，失败 ${failures.length} 条。`,
         ...failures,
       ]);
     } catch (e) {
@@ -169,6 +274,21 @@ export default function App() {
     } finally {
       setBusy(false);
       lock.current = false;
+    }
+  }
+  async function exportBackup() {
+    if (lock.current || zipImport) return;
+    lock.current = true;
+    setBusy(true);
+    setError("");
+    setReport([]);
+    try {
+      if (await invoke<boolean>("export_backup")) setReport(["备份已导出。"]);
+    } catch (e) {
+      setError(`导出备份失败：${String(e)}`);
+    } finally {
+      lock.current = false;
+      setBusy(false);
     }
   }
   async function mutate(action: () => Promise<void>) {
@@ -304,7 +424,16 @@ export default function App() {
     ));
   return (
     <div className={`app ${page === "map" ? "map-page" : ""}`}>
-      {dropPaths !== null && (
+      {zipImport && (
+        <ZipImportDialog
+          onCancel={() => setZipImport(null)}
+          onImport={(date) => {
+            setZipImport(null);
+            void importFiles(zipImport, date);
+          }}
+        />
+      )}
+      {dropPaths !== null && !zipImport && (
         <div className="gpx-drop-overlay" role="status" aria-live="polite">
           <div>
             <Download size={38} />
@@ -313,14 +442,16 @@ export default function App() {
                 ? "正在读取本地数据…"
                 : busy
                   ? "正在处理文件…"
-                  : dropPaths.some((path) => /\.gpx$/i.test(path))
-                    ? "松开以导入 GPX"
-                    : "请拖入 GPX 文件"}
+                  : dropPaths.some(isZip)
+                    ? "松开以选择 ZIP 导入日期"
+                    : dropPaths.some((path) => /\.gpx$/i.test(path))
+                      ? "松开以导入 GPX"
+                      : "请拖入 GPX 或 ZIP 文件"}
             </h2>
             <p>
               {!ready || busy
                 ? "请稍后再拖入文件"
-                : "支持多个文件，每个不超过 50 MB"}
+                : "支持多个文件，单个 GPX 不超过 50 MB"}
             </p>
           </div>
         </div>
@@ -402,23 +533,23 @@ export default function App() {
             </div>
             <button
               className="primary"
-              disabled={busy || !ready || !desktop}
+              disabled={busy || zipImport !== null || !ready || !desktop}
               onClick={() => input.current?.click()}
             >
               <Download size={17} />
-              {busy ? "正在处理…" : "导入 GPX"}
+              {busy ? "正在处理…" : "导入 GPX / ZIP"}
               <span>＋</span>
             </button>
             <input
               ref={input}
               type="file"
-              accept=".gpx,application/gpx+xml"
+              accept=".gpx,.zip,application/gpx+xml,application/zip"
               multiple
               hidden
               onChange={(e) => {
-                const files = Array.from(e.target.files ?? []);
+                const files = Array.from(e.target.files ?? [], pickedImportFile);
                 e.target.value = "";
-                if (files.length) void importFiles(files);
+                if (files.length) void requestImport(files);
               }}
             />
           </div>
@@ -694,7 +825,7 @@ export default function App() {
                 <div className="empty-list">
                   <History size={34} />
                   <h3>还没有骑行记录</h3>
-                  <p>点击“导入 GPX”添加记录。</p>
+                  <p>点击“导入 GPX / ZIP”添加记录。</p>
                 </div>
               )}
             </section>
@@ -716,6 +847,8 @@ export default function App() {
               onThemeChange={setDark}
               recordCount={ready ? rides.length : null}
               desktop={desktop}
+              busy={busy || !ready || zipImport !== null}
+              onExport={() => void exportBackup()}
             />
           )}
         </div>

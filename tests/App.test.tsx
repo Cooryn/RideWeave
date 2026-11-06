@@ -2,11 +2,18 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { File as NodeFile } from "node:buffer";
 import { webcrypto } from "node:crypto";
+import {
+  Uint8ArrayReader,
+  Uint8ArrayWriter,
+  ZipWriter,
+} from "@zip.js/zip.js/index-native.js";
 import type { Ride, RidePreviewPoint } from "../src/types";
 import type { DragDropEvent } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
 import { PhysicalPosition } from "@tauri-apps/api/dpi";
+import { parseGpx } from "../src/gpx";
 vi.mock("@tauri-apps/api/core", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tauri-apps/api/core")>()),
   invoke: vi.fn(),
@@ -305,6 +312,120 @@ it("rejects additional drops while importing and accepts another batch after com
   expect(invoke).toHaveBeenCalledTimes(2);
 });
 
+it("imports new GPX from a dropped ZIP by local start date, with cancellation and re-import", async () => {
+  // jsdom does not implement the native dialog methods.
+  Object.assign(HTMLDialogElement.prototype, {
+    showModal(this: HTMLDialogElement) {
+      this.open = true;
+    },
+    close(this: HTMLDialogElement) {
+      this.open = false;
+    },
+  });
+  const midnight = new Date(2026, 9, 1).getTime();
+  const withStart = (timestamp: number, latitude: number) =>
+    raw
+      .replace(/<time>[^<]*<\/time>/g, `<time>${new Date(timestamp).toISOString()}</time>`)
+      .replace('lat="30"', `lat="${latitude}"`);
+  const duplicate = withStart(midnight, 30);
+  data.rides.push(await parseGpx(duplicate, "already-imported.gpx"));
+
+  const zip = new ZipWriter(new Uint8ArrayWriter(), { useWebWorkers: false });
+  for (const [name, content] of Object.entries({
+    "nested/route-2099.gpx": withStart(midnight - 1, 30),
+    "nested/different-name.gpx": duplicate,
+    "nested/route-2000.GPX": withStart(midnight, 31),
+    "nested/tomorrow.gpx": withStart(midnight + 86400000, 30),
+    "nested/undated.gpx": raw.replace(/<time>[^<]*<\/time>/g, ""),
+    "nested/invalid.gpx": "<gpx/>",
+    "export.xml": "not a GPX route",
+  })) {
+    await zip.add(
+      name,
+      new Uint8ArrayReader(new TextEncoder().encode(content)),
+    );
+  }
+  const archive = await zip.close();
+  const closeArchive = vi.fn();
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    if (command === "open_dropped_zip") return archive.length;
+    if (command === "close_dropped_zip") return closeArchive();
+    if (command !== "read_dropped_zip_range") throw new Error(command);
+    const { offset, length } = args as { offset: number; length: number };
+    return archive.slice(offset, offset + length).buffer;
+  });
+  const paths = ["C:\\Users\\Test\\iCloudDrive\\Health\\导出.zip"];
+  const drop = { type: "drop", paths, position: location } as const;
+  const startImport = (count: number) =>
+    act(async () => {
+      container.querySelector<HTMLFormElement>("dialog form")!.requestSubmit();
+      await vi.waitFor(() => expect(closeArchive).toHaveBeenCalledTimes(count));
+    });
+
+  await drag({ ...drop, type: "enter" });
+  expect(container.querySelector(".gpx-drop-overlay")?.textContent).toContain(
+    "选择 ZIP 导入日期",
+  );
+  await drag(drop);
+  expect(container.querySelector("dialog")?.open).toBe(true);
+  await click("取消");
+  expect(container.querySelector("dialog")).toBeNull();
+  expect(invoke).not.toHaveBeenCalled();
+
+  await drag(drop);
+  container.querySelector<HTMLInputElement>('input[type="date"]')!.value =
+    "2026-10-01";
+  await startImport(1);
+  expect(container.textContent).toContain(
+    "新增 2 条，重复 1 条，早于所选日期 1 条，无日期 1 条，失败 1 条",
+  );
+  expect(container.textContent).toContain("导出.zip / invalid.gpx");
+  expect(data.rides.map((ride) => ride.filename)).toEqual([
+    "already-imported.gpx",
+    "route-2000.GPX",
+    "tomorrow.gpx",
+  ]);
+  expect(invoke).toHaveBeenCalledWith("open_dropped_zip", { path: paths[0] });
+  expect(invoke).toHaveBeenCalledWith("close_dropped_zip");
+
+  await drag(drop);
+  await startImport(2);
+  expect(container.textContent).toContain("新增 2 条，重复 3 条，失败 1 条");
+  expect(data.rides).toHaveLength(5);
+});
+
+it("imports a Windows-selected ZIP and exports a backup from settings", async () => {
+  const zip = new ZipWriter(new Uint8ArrayWriter(), { useWebWorkers: false });
+  await zip.add(
+    "rides/picked.gpx",
+    new Uint8ArrayReader(new TextEncoder().encode(raw)),
+  );
+  const file = new NodeFile([Uint8Array.from(await zip.close())], "骑行.zip");
+  const input =
+    container.querySelector<HTMLInputElement>('input[type="file"]')!;
+  expect(input.accept).toContain(".zip");
+  Object.defineProperty(input, "files", { value: [file] });
+  await act(async () =>
+    input.dispatchEvent(new Event("change", { bubbles: true })),
+  );
+  await act(async () => {
+    container.querySelector<HTMLFormElement>("dialog form")!.requestSubmit();
+    await vi.waitFor(() => expect(data.rides).toHaveLength(1));
+  });
+  expect(container.textContent).toContain("新增 1 条，重复 0 条，失败 0 条");
+  expect(data.rides[0].filename).toBe("picked.gpx");
+  expect(invoke).not.toHaveBeenCalledWith(
+    "open_dropped_zip",
+    expect.anything(),
+  );
+
+  vi.mocked(invoke).mockResolvedValueOnce(true);
+  await click("设置");
+  await click("导出备份");
+  expect(invoke).toHaveBeenCalledWith("export_backup");
+  expect(container.textContent).toContain("备份已导出");
+});
+
 it("waits for database readiness before reading any dropped file", async () => {
   let resolveLoad!: (rides: Ride[]) => void;
   data.pendingLoad = new Promise((resolve) => {
@@ -339,7 +460,7 @@ it("reports unavailable native drop handling and cleans up subscriptions that re
   fileDrop.subscribe.mockRejectedValueOnce(new Error("unavailable"));
   await act(async () => root.render(<App />));
   expect(container.textContent).toContain(
-    "拖入导入暂不可用，请使用“导入 GPX”按钮",
+    "拖入导入暂不可用，请使用“导入 GPX / ZIP”按钮",
   );
   expect(
     container.querySelector<HTMLButtonElement>(".page-heading .primary")

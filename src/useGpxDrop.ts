@@ -1,14 +1,12 @@
-import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useEffect, useRef, useState } from "react";
-
-export type GpxImportFile = Pick<File, "name" | "text"> & { size?: number };
+import { droppedImportFile, type ImportFile } from "./gpxImport";
 
 export function useGpxDrop(options: {
   desktop: boolean;
   ready: boolean;
   busy: boolean;
-  onImport: (files: GpxImportFile[]) => Promise<void>;
+  onImport: (files: ImportFile[]) => Promise<void>;
   onError: (message: string) => void;
 }) {
   const [paths, setPaths] = useState<string[] | null>(null);
@@ -36,10 +34,7 @@ export function useGpxDrop(options: {
             current.onError("正在处理文件，请完成后再次拖入。");
             return;
           }
-          const files = [...new Set(payload.paths)].map((path) => ({
-            name: path.split(/[\\/]/).at(-1) || path,
-            text: () => invoke<string>("read_dropped_gpx", { path }),
-          }));
+          const files = [...new Set(payload.paths)].map(droppedImportFile);
           importing.current = true;
           void current
             .onImport(files)
@@ -57,7 +52,9 @@ export function useGpxDrop(options: {
     );
     void listener.catch(() => {
       if (!disposed)
-        latest.current.onError("拖入导入暂不可用，请使用“导入 GPX”按钮。");
+        latest.current.onError(
+          "拖入导入暂不可用，请使用“导入 GPX / ZIP”按钮。",
+        );
     });
     return () => {
       disposed = true;

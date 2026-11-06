@@ -17,11 +17,15 @@ export default function SettingsPage({
   onThemeChange,
   recordCount,
   desktop,
+  busy,
+  onExport,
 }: {
   dark: boolean;
   onThemeChange: (dark: boolean) => void;
   recordCount: number | null;
   desktop: boolean;
+  busy: boolean;
+  onExport: () => void;
 }) {
   return (
     <div className="preferences" aria-label="应用设置">
@@ -83,6 +87,17 @@ export default function SettingsPage({
                 : "预览模式"}
             </span>
           </div>
+          {desktop && (
+            <div className="preference-row">
+              <div className="preference-label">
+                <h3>骑行备份</h3>
+                <p>导出一个备份文件，可将完整的骑行记录迁移到 Android。</p>
+              </div>
+              <button className="subtle" disabled={busy} onClick={onExport}>
+                导出备份
+              </button>
+            </div>
+          )}
           <details className="preference-details">
             <summary>
               <span>数据位置与备份</span>
@@ -92,7 +107,7 @@ export default function SettingsPage({
               <p>Windows 数据文件位置</p>
               <code>%APPDATA%\com.rideweave.desktop\rideweave.db</code>
               <p>
-                备份时先退出
+                手动备份时先退出
                 RideWeave，再复制整个数据文件夹；同目录下的数据库附属文件也需要一并保留。导入的源
                 GPX 文件仍在原位置。
               </p>
