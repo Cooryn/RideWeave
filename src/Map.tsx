@@ -77,7 +77,7 @@ export default function RideMap({
   useEffect(() => {
     const userAgent = navigator.userAgent;
     const android = /\bAndroid\b/.test(userAgent);
-    const chromium = Number(userAgent.match(/\bChrome\/(\d+)/)?.[1]);
+    const androidVersion = Number(userAgent.match(/\bAndroid (\d+)/)?.[1]);
     let m: VectorMap;
     try {
       m = new VectorMap({
@@ -95,9 +95,9 @@ export default function RideMap({
         dragRotate: false,
         pitchWithRotate: false,
         renderWorldCopies: false,
-        // Older Android WebViews can stall while requesting an ES3 context.
+        // Android 10's WebView may run on an ES2-only graphics driver.
         canvasContextAttributes:
-          android && chromium < 80 ? { contextType: "webgl" } : undefined,
+          androidVersion === 10 ? { contextType: "webgl" } : undefined,
         // Our observer ignores hidden containers to retain the camera and canvas size.
         trackResize: false,
       });

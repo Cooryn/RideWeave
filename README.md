@@ -124,4 +124,4 @@ APK 位于 Android 工程的 `app/build/outputs/apk/`。可用 `adb install -r <
 
 如果 Windows 禁止 Tauri 创建 JNI 库符号链接，可用 `./scripts/build-android.ps1 -Target aarch64` 或 `./scripts/build-android.ps1 -Target x86_64 -DebugBuild`。脚本会将已经编译的 Rust 库复制到 Gradle 的输入目录，再继续打包。
 
-安装 Android 调试包后，可用 `node tests/android-smoke.mjs "<adb.exe 路径>" emulator-5554` 验证应用内导入、地图和重启后的数据。Android 17 模拟器可额外传入 `--native-share`，覆盖系统分享、横屏和断网降级。
+安装 Android 调试包后，可用 `node tests/android-smoke.mjs "<adb.exe 路径>" emulator-5554` 验证应用内导入、地图和重启后的数据。Android 10 模拟器验收使用宿主 GPU 和更新后的 WebView 124。Android 17 模拟器可额外传入 `--native-share`，覆盖系统分享、横屏和断网降级。
