@@ -32,11 +32,13 @@ export default function StatsDashboard({
   period,
   onPeriodChange,
   onSelect,
+  touch = false,
 }: {
   rides: Ride[];
   period: StatsPeriod;
   onPeriodChange: (period: StatsPeriod) => void;
   onSelect: (id: string) => void;
+  touch?: boolean;
 }) {
   const [metric, setMetric] = useState<"distance" | "count">("distance");
   const [hovered, setHovered] = useState<number | null>(null);
@@ -265,16 +267,21 @@ export default function StatsDashboard({
                       style={{
                         gridTemplateColumns: `repeat(${data.trend.length}, minmax(0, 1fr))`,
                       }}
-                      onMouseLeave={() => setHovered(null)}
+                      onMouseLeave={() => {
+                        if (!touch) setHovered(null);
+                      }}
                     >
                       {data.trend.map((bucket, i) => (
                         <button
                           key={bucket.key}
                           className={hovered === i ? "is-active" : ""}
                           aria-label={`${bucket.detail}：${number(bucket.distance)} km，${bucket.count} 次`}
-                          onMouseEnter={() => setHovered(i)}
+                          onMouseEnter={() => {
+                            if (!touch) setHovered(i);
+                          }}
                           onFocus={() => setHovered(i)}
                           onBlur={() => setHovered(null)}
+                          onClick={touch ? () => setHovered(i) : undefined}
                         >
                           <span
                             style={{

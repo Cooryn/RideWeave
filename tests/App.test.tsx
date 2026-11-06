@@ -12,12 +12,19 @@ vi.mock("@tauri-apps/api/core", async (importOriginal) => ({
   invoke: vi.fn(),
 }));
 const data = vi.hoisted(() => ({
+  mobile: false,
   rides: [] as Ride[],
   deleteError: "",
   pendingLoad: null as Promise<Ride[]> | null,
 }));
 vi.mock("../src/storage", () => ({
-  desktop: true,
+  get desktop() {
+    return !data.mobile;
+  },
+  nativeApp: true,
+  get android() {
+    return data.mobile;
+  },
   loadOriginalGpx: async () => null,
   loadRides: async () => data.pendingLoad ?? [...data.rides],
   saveRide: async (ride: Ride) => {
@@ -92,6 +99,7 @@ let root: Root, container: HTMLDivElement;
 beforeEach(async () => {
   vi.stubGlobal("crypto", webcrypto);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  data.mobile = false;
   data.rides = [];
   data.deleteError = "";
   data.pendingLoad = null;
@@ -685,4 +693,55 @@ it("uses integrated window controls and reports native failures", async () => {
   expect(
     container.querySelector("header[data-tauri-drag-region]"),
   ).not.toBeNull();
+});
+
+it("imports Android shares, handles system back and merges a selected backup", async () => {
+  await act(async () => root.render(null));
+  data.mobile = true;
+  fileDrop.subscribe.mockClear();
+  let shared = [
+    { token: "a", name: "骑行.gpx" },
+    { token: "b", name: "副本.gpx" },
+    { token: "invalid", name: "不支持.txt" },
+    { token: "large", name: "过大.gpx", size: 50 * 1024 * 1024 + 1 },
+  ];
+  vi.mocked(invoke).mockImplementation(async (command) => {
+    if (command === "take_shared_gpx") {
+      const files = shared;
+      shared = [];
+      return files as never;
+    }
+    if (command === "read_shared_gpx")
+      return new TextEncoder().encode(raw).buffer as never;
+    if (command === "restore_backup")
+      return { added: 0, duplicates: 1 } as never;
+    return undefined as never;
+  });
+  await act(async () => root.render(<App />));
+  await vi.waitFor(async () => {
+    await act(async () => {});
+    expect(container.textContent).toContain("新增 1 条，重复 1 条，失败 2 条");
+  });
+  expect(container.querySelector(".android-app")).not.toBeNull();
+  expect(container.querySelector(".window-controls")).toBeNull();
+  expect(fileDrop.subscribe).not.toHaveBeenCalled();
+  expect(
+    container.querySelector<HTMLInputElement>('input[type="file"]')?.multiple,
+  ).toBe(true);
+  expect(data.rides).toHaveLength(1);
+  expect(
+    vi.mocked(invoke).mock.calls.filter(([name]) => name === "read_shared_gpx"),
+  ).toHaveLength(2);
+
+  const back = () =>
+    act(async () => window.dispatchEvent(new Event("rideweave-back")));
+  await click("设置");
+  await click("恢复备份");
+  await back();
+  expect(container.textContent).not.toContain("选择备份文件");
+  await click("恢复备份");
+  await click("选择备份文件");
+  expect(container.textContent).toContain("恢复完成：新增 0 条，重复 1 条");
+  await back();
+  expect(container.querySelector("h1")?.textContent).toBe("骑行地图");
 });

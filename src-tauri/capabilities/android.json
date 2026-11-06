@@ -1,0 +1,7 @@
+{
+  "identifier": "android",
+  "description": "Local Android WebView database access",
+  "platforms": ["android"],
+  "windows": ["main"],
+  "permissions": ["sql:default", "sql:allow-execute"]
+}

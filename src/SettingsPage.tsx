@@ -16,12 +16,24 @@ export default function SettingsPage({
   dark,
   onThemeChange,
   recordCount,
-  desktop,
+  nativeApp,
+  android,
+  busy,
+  confirmRestore,
+  onExport,
+  onConfirmRestore,
+  onRestore,
 }: {
   dark: boolean;
   onThemeChange: (dark: boolean) => void;
   recordCount: number | null;
-  desktop: boolean;
+  nativeApp: boolean;
+  android: boolean;
+  busy: boolean;
+  confirmRestore: boolean;
+  onExport: () => void;
+  onConfirmRestore: (confirm: boolean) => void;
+  onRestore: () => void;
 }) {
   return (
     <div className="preferences" aria-label="应用设置">
@@ -70,32 +82,84 @@ export default function SettingsPage({
             <div className="preference-label">
               <h3>骑行记录</h3>
               <p>
-                {desktop
-                  ? "原始 GPX、轨迹点与骑行统计保存在这台电脑。"
-                  : "当前为界面预览，请在桌面应用中导入和保存骑行。"}
+                {nativeApp
+                  ? "原始 GPX、轨迹点与骑行统计保存在本机。"
+                  : "当前为界面预览，请在 RideWeave 应用中导入和保存骑行。"}
               </p>
             </div>
             <span className="preference-value">
-              {desktop
+              {nativeApp
                 ? recordCount === null
                   ? "暂未读取"
                   : `${recordCount} 条记录`
                 : "预览模式"}
             </span>
           </div>
+          {nativeApp && (
+            <div className="preference-row backup-row">
+              <div className="preference-label">
+                <h3>骑行备份</h3>
+                <p>
+                  {android
+                    ? "可恢复 Windows 或 Android 导出的 RideWeave 备份。"
+                    : "导出一个备份文件，可将完整的骑行记录迁移到 Android。"}
+                </p>
+              </div>
+              <div className="backup-actions">
+                <button className="subtle" disabled={busy} onClick={onExport}>
+                  导出备份
+                </button>
+                {android && (
+                  <button
+                    className="subtle"
+                    disabled={busy}
+                    onClick={() => onConfirmRestore(true)}
+                  >
+                    恢复备份
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          {android && confirmRestore && (
+            <div className="preference-row backup-row" role="alert">
+              <p>恢复会合并骑行记录，重复记录保留本机版本。</p>
+              <div className="backup-actions">
+                <button className="primary" disabled={busy} onClick={onRestore}>
+                  选择备份文件
+                </button>
+                <button
+                  className="subtle"
+                  onClick={() => onConfirmRestore(false)}
+                >
+                  取消
+                </button>
+              </div>
+            </div>
+          )}
           <details className="preference-details">
             <summary>
               <span>数据位置与备份</span>
               <ChevronDown size={17} />
             </summary>
             <div>
-              <p>Windows 数据文件位置</p>
-              <code>%APPDATA%\com.rideweave.desktop\rideweave.db</code>
-              <p>
-                备份时先退出
-                RideWeave，再复制整个数据文件夹；同目录下的数据库附属文件也需要一并保留。导入的源
-                GPX 文件仍在原位置。
-              </p>
+              {android ? (
+                <p>
+                  数据库位于 Android
+                  应用私有目录。请通过上方的按钮导出到你选择的位置。导入的源 GPX
+                  文件仍在原位置。
+                </p>
+              ) : (
+                <>
+                  <p>Windows 数据文件位置</p>
+                  <code>%APPDATA%\com.rideweave.desktop\rideweave.db</code>
+                  <p>
+                    手动备份时先退出
+                    RideWeave，再复制整个数据文件夹，并保留数据库附属文件。导入的源
+                    GPX 文件仍在原位置。
+                  </p>
+                </>
+              )}
             </div>
           </details>
         </div>
@@ -169,7 +233,13 @@ export default function SettingsPage({
           </div>
           <div className="preferences-footnote">
             <Bike size={14} />
-            <span>{desktop ? "Windows 桌面版" : "浏览器界面预览"}</span>
+            <span>
+              {android
+                ? "Android 版"
+                : nativeApp
+                  ? "Windows 桌面版"
+                  : "浏览器界面预览"}
+            </span>
             <span>本地保存 · 无需账户</span>
           </div>
         </div>

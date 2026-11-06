@@ -1,0 +1,261 @@
+.backup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.android-app {
+  display: flex;
+  flex-direction: column-reverse;
+}
+
+.android-app > .sidebar {
+  position: static;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.android-app .sidebar > .brand,
+.android-app .sidebar > .sidebar-bottom,
+.android-app .nav-dot,
+.android-app nav::before {
+  display: none;
+}
+
+.android-app nav {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: 48px;
+  gap: 4px;
+}
+
+.android-app nav button {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 2px;
+  gap: 3px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.android-app nav .selected {
+  background: var(--nav-selection, var(--bg));
+}
+
+.android-app > main {
+  margin: 0;
+  min-height: 0;
+  scrollbar-gutter: auto;
+}
+
+.android-app main > header {
+  height: 46px;
+  flex: 0 0 46px;
+  padding: 0 10px 0 14px;
+}
+
+.android-app .mobile-wordmark {
+  font-size: 16px;
+  font-weight: 750;
+}
+
+.android-app .header-actions > .icon-button {
+  margin: 0;
+}
+
+.android-app .content {
+  padding: 10px 10px 14px;
+}
+
+.android-app .page-heading {
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.android-app .page-heading h1 {
+  font-size: 23px;
+}
+
+.android-app button.icon-button,
+.android-app button.primary,
+.android-app button.subtle {
+  min-height: 44px;
+}
+
+.android-app .icon-button {
+  min-width: 44px;
+}
+
+.android-app .stats-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin-bottom: 8px;
+}
+
+.android-app .stat-card {
+  min-height: 0;
+  padding: 6px 9px;
+}
+
+.android-app .stat-card > div {
+  font-size: 11px;
+}
+
+.android-app .stat-card > strong {
+  font-size: 21px;
+  margin: 2px 0;
+}
+
+.android-app .map-layout {
+  gap: 6px;
+}
+
+.android-app.map-page main {
+  overflow-y: auto;
+}
+
+.android-app .map-layout[hidden] {
+  display: none;
+}
+
+.android-app .map-panel .panel-heading,
+.android-app .ride-panel .panel-heading {
+  min-height: 46px;
+  padding: 2px 8px;
+  gap: 4px;
+}
+
+.android-app .map-panel .panel-heading h2,
+.android-app .ride-panel .panel-heading h2 {
+  font-size: 14px;
+}
+
+.android-app .map-wrap {
+  height: auto;
+  min-height: 0;
+  flex: 1;
+}
+
+.android-app .road-mode {
+  top: 42px;
+  left: 7px;
+}
+
+.android-app .map-label,
+.android-app .map-controls {
+  top: 7px;
+}
+
+.android-app .map-label {
+  left: 7px;
+  max-width: calc(100% - 64px);
+}
+
+.android-app .map-controls {
+  right: 7px;
+}
+
+.android-app .map-overlays {
+  left: 7px;
+  right: 7px;
+  bottom: 34px;
+}
+
+.android-app .maplibregl-ctrl-attrib {
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.android-app .ride-panel .detail {
+  padding: 10px;
+}
+
+.android-app .ride-chart-plot svg[role="slider"] {
+  touch-action: pan-y;
+}
+
+.android-app input[type="range"] {
+  touch-action: pan-y;
+}
+
+.android-app .backup-row {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.android-app .preferences-card {
+  min-width: 0;
+}
+
+@media (orientation: portrait), (max-width: 640px) {
+  .android-app.map-page .map-layout {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+  }
+
+  .android-app.map-page .content {
+    flex: 1;
+  }
+
+  .android-app .map-panel {
+    flex: 1 1 0;
+  }
+
+  .android-app .ride-panel[data-expanded="false"] > :not(.panel-heading) {
+    display: none;
+  }
+
+  .android-app .ride-panel[data-expanded="false"] {
+    flex: 0 0 auto;
+  }
+
+  .android-app .ride-panel[data-expanded="true"] {
+    flex: 0 0 42vh;
+    flex: 0 0 min(42dvh, 55%);
+  }
+
+  .android-app .ride-panel > .detail,
+  .android-app .ride-panel > .ride-list {
+    flex: 1;
+    max-height: none;
+    overflow-y: auto;
+  }
+
+  .android-app .ride-panel .month-card {
+    margin: 2px 8px 8px;
+    padding: 8px 12px;
+  }
+
+  .android-app .ride-panel .month-card strong {
+    display: inline;
+    margin-left: 8px;
+    font-size: 16px;
+  }
+
+  .android-app.map-page .map-layout {
+    min-height: 220px;
+  }
+}
+
+@media (orientation: landscape) and (min-width: 641px) {
+  .android-app .mobile-panel-toggle {
+    display: none;
+  }
+
+  .android-app.map-page .map-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 37%);
+    flex: 1;
+    min-height: 200px;
+  }
+
+  .android-app.map-page .content {
+    flex: 1;
+  }
+
+  .android-app .stats-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}

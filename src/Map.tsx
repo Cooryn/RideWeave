@@ -75,6 +75,9 @@ export default function RideMap({
   }
 
   useEffect(() => {
+    const userAgent = navigator.userAgent;
+    const android = /\bAndroid\b/.test(userAgent);
+    const chromium = Number(userAgent.match(/\bChrome\/(\d+)/)?.[1]);
     let m: VectorMap;
     try {
       m = new VectorMap({
@@ -92,6 +95,9 @@ export default function RideMap({
         dragRotate: false,
         pitchWithRotate: false,
         renderWorldCopies: false,
+        // Older Android WebViews can stall while requesting an ES3 context.
+        canvasContextAttributes:
+          android && chromium < 80 ? { contextType: "webgl" } : undefined,
         // Our observer ignores hidden containers to retain the camera and canvas size.
         trackResize: false,
       });
@@ -99,7 +105,9 @@ export default function RideMap({
       setFatal(true);
       setLoading(false);
       setError(
-        "无法初始化矢量地图，请更新 WebView2 或显卡驱动后重启应用。历史记录和统计仍可使用。",
+        android
+          ? "无法初始化矢量地图，请更新 Android 系统 WebView 后重启应用。历史记录和统计仍可使用。"
+          : "无法初始化矢量地图，请更新 WebView2 或显卡驱动后重启应用。历史记录和统计仍可使用。",
       );
       return;
     }

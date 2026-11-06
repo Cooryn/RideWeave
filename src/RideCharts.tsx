@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type PointerEvent,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -87,9 +88,11 @@ function ChartTooltip({
 export default function RideCharts({
   ride,
   onPreview,
+  touch = false,
 }: {
   ride: Ride;
   onPreview?: (point: RidePreviewPoint | null) => void;
+  touch?: boolean;
 }) {
   const [recorded, setRecorded] = useState<{
     original: Ride["segments"];
@@ -103,13 +106,23 @@ export default function RideCharts({
   } | null>(null);
   useEffect(() => {
     const hide = () => setCursor(null);
+    const dismissTouch = (event: globalThis.PointerEvent) => {
+      if (
+        !(event.target instanceof Element) ||
+        !event.target.closest(".ride-chart-plot")
+      )
+        hide();
+    };
     window.addEventListener("scroll", hide, true);
     window.addEventListener("resize", hide);
+    if (touch) document.addEventListener("pointerdown", dismissTouch, true);
     return () => {
       window.removeEventListener("scroll", hide, true);
       window.removeEventListener("resize", hide);
+      if (touch)
+        document.removeEventListener("pointerdown", dismissTouch, true);
     };
-  }, []);
+  }, [touch]);
   useEffect(() => {
     let active = true;
     setCursor(null);
@@ -242,6 +255,29 @@ export default function RideCharts({
               ),
             );
     previewAt(event.currentTarget, samples[index].position, metric);
+  }
+
+  function pointer(event: PointerEvent<SVGSVGElement>, metric: ProfileMetric) {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    if (!bounds.width || !profile.samples.length) return;
+    const plotX = Math.max(
+      0,
+      Math.min(
+        CHART.width,
+        ((event.clientX - bounds.left) / bounds.width) * CHART.width,
+      ),
+    );
+    if (plotX < CHART.left) {
+      setCursor(null);
+      return;
+    }
+    const ratio = Math.min(1, (plotX - CHART.left) / plotWidth);
+    setCursor({
+      position: ratio * profile.extent,
+      metric,
+      plotX,
+      anchor: { x: event.clientX, y: event.clientY },
+    });
   }
 
   return (
@@ -386,44 +422,31 @@ export default function RideCharts({
                 preserveAspectRatio="none"
                 role="slider"
                 tabIndex={profile.samples.length ? 0 : -1}
-                aria-label={`${speed ? "速度" : "海拔高度"}图，左右方向键查看采样点`}
+                aria-label={`${speed ? "速度" : "海拔高度"}图，${touch ? "点按或拖动" : "左右方向键"}查看采样点`}
                 aria-valuemin={0}
                 aria-valuemax={profile.extent}
                 aria-valuenow={cursor ? activePosition : 0}
                 aria-valuetext={
                   cursor
                     ? `${profilePositionLabel(profile, activePosition)}，${activeSample?.[metric] != null ? `${format(activeSample[metric])} ${unit}` : "无采样数据"}`
-                    : "鼠标悬停或使用方向键预览"
+                    : touch
+                      ? "点按或拖动预览"
+                      : "鼠标悬停或使用方向键预览"
                 }
-                onPointerMove={(event) => {
-                  const bounds = event.currentTarget.getBoundingClientRect();
-                  if (!bounds.width || !profile.samples.length) return;
-                  const plotX = Math.max(
-                    0,
-                    Math.min(
-                      CHART.width,
-                      ((event.clientX - bounds.left) / bounds.width) *
-                        CHART.width,
-                    ),
-                  );
-                  if (plotX < CHART.left) {
-                    setCursor(null);
-                    return;
-                  }
-                  const ratio = Math.max(
-                    0,
-                    Math.min(1, (plotX - CHART.left) / plotWidth),
-                  );
-                  setCursor({
-                    position: ratio * profile.extent,
-                    metric,
-                    // Draw at the pointer, even between samples or in padding.
-                    // Only the preview values snap to a real observation.
-                    plotX,
-                    anchor: { x: event.clientX, y: event.clientY },
-                  });
+                onPointerDown={(event) => {
+                  if (!touch || event.pointerType === "mouse") return;
+                  event.preventDefault();
+                  event.currentTarget.setPointerCapture?.(event.pointerId);
+                  pointer(event, metric);
                 }}
-                onPointerLeave={() => setCursor(null)}
+                onPointerMove={(event) => {
+                  if (!touch || event.pointerType === "mouse" || event.buttons)
+                    pointer(event, metric);
+                }}
+                onPointerCancel={() => setCursor(null)}
+                onPointerLeave={(event) => {
+                  if (!touch || event.pointerType === "mouse") setCursor(null);
+                }}
                 onFocus={(event) => {
                   const position = playback.active ? playback.position : 0;
                   previewAt(event.currentTarget, position, metric);

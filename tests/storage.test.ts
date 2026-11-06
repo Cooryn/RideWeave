@@ -48,8 +48,8 @@ afterAll(() => {
 });
 it("persists original GPX, deduplicates, renames, reopens and deletes", async () => {
   fixture.connection = new DatabaseSync(filename);
-  const rust = readFileSync("src-tauri/src/main.rs", "utf8");
-  const schema = rust.match(/sql: "([^"]+)"/)![1];
+  const rust = readFileSync("src-tauri/src/backup.rs", "utf8");
+  const schema = rust.match(/CREATE_RIDES: &str = "([^"]+)"/)![1];
   fixture.connection.exec(schema);
   const ride: Ride = {
     id: "test-hash",
