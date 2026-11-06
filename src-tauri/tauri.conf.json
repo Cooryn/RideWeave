@@ -9,28 +9,9 @@
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
-  "app": {
-    "windows": [
-      {
-        "title": "RideWeave",
-        "width": 1440,
-        "height": 940,
-        "minWidth": 980,
-        "minHeight": 680,
-        "decorations": false,
-        "dragDropEnabled": true,
-        "backgroundColor": "#080b0c"
-      }
-    ],
-    "security": {
-      "csp": "default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data: blob: https://tiles.openfreemap.org; connect-src 'self' ipc: http://ipc.localhost https://tiles.openfreemap.org"
-    }
-  },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
     "shortDescription": "个人骑行轨迹管理",
-    "category": "Sports",
-    "icon": ["icons/icon.ico"]
+    "category": "Sports"
   }
 }

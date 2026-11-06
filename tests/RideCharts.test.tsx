@@ -134,6 +134,49 @@ it("plays, pauses, seeks and replays with a simple progress bar and synchronized
   expect(onPreview).toHaveBeenLastCalledWith(null);
 });
 
+it("keeps a touched chart preview independent from the playback scrubber", async () => {
+  await act(async () =>
+    root.render(
+      <RideCharts
+        touch
+        ride={trace([point(0), point(10), point(20)])}
+        onPreview={onPreview}
+      />,
+    ),
+  );
+  const chart = element.querySelector(".ride-chart-plot svg")!;
+  vi.spyOn(chart, "getBoundingClientRect").mockReturnValue({
+    left: 0,
+    width: 320,
+  } as DOMRect);
+  const touch = (type: string, clientX: number, buttons = 1) => {
+    const event = new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      clientX,
+      clientY: 50,
+      buttons,
+    });
+    Object.defineProperty(event, "pointerType", { value: "touch" });
+    return event;
+  };
+  await act(async () => chart.dispatchEvent(touch("pointerdown", 181)));
+  expect(onPreview).toHaveBeenLastCalledWith({
+    rideId: "ride",
+    lat: 0,
+    lon: 0.0001,
+  });
+  expect(progress().value).toBe("0");
+  await act(async () => chart.dispatchEvent(touch("pointermove", 311)));
+  expect(onPreview).toHaveBeenLastCalledWith({
+    rideId: "ride",
+    lat: 0,
+    lon: 0.0002,
+  });
+  await act(async () => element.dispatchEvent(touch("pointerdown", 0)));
+  expect(onPreview).toHaveBeenLastCalledWith(null);
+});
+
 it("automatically completes a long uninterrupted ride within twenty seconds", async () => {
   vi.useFakeTimers();
   await render(trace(Array.from({ length: 101 }, (_, i) => point(i * 10))));

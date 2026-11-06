@@ -1,5 +1,7 @@
+#[cfg(any(test, target_os = "android"))]
+use sqlx::Row;
 use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection, SqlitePool};
-
+#[cfg(windows)]
 use std::fs::File;
 use std::path::Path;
 use tauri::{AppHandle, Manager};
@@ -10,6 +12,8 @@ pub const CREATE_RIDES: &str = "CREATE TABLE IF NOT EXISTS rides (id TEXT PRIMAR
 const FORMAT_ID: i32 = 0x52575642;
 const FORMAT_VERSION: i32 = 1;
 const BACKUP_NAME: &str = "RideWeave.rideweave-backup";
+#[cfg(any(test, target_os = "android"))]
+const RIDE_COLUMNS: &str = "id,name,date,distance,duration,segments,raw_gpx,filename,imported_at";
 
 async fn ride_pool(app: &AppHandle) -> Result<SqlitePool, String> {
     let instances = app.state::<DbInstances>();
@@ -50,7 +54,7 @@ async fn export_snapshot(pool: &SqlitePool, snapshot: &Path) -> Result<(), sqlx:
 #[tauri::command]
 pub async fn export_backup(app: AppHandle) -> Result<bool, String> {
     let pool = ride_pool(&app).await?;
-
+    #[cfg(windows)]
     let destination = tauri::async_runtime::spawn_blocking(|| {
         rfd::FileDialog::new()
             .set_title("导出骑行备份")
@@ -60,8 +64,9 @@ pub async fn export_backup(app: AppHandle) -> Result<bool, String> {
     })
     .await
     .map_err(|e| e.to_string())?;
-
-    let Some(destination) = destination else {
+    #[cfg(windows)]
+    let Some(destination) = destination
+    else {
         return Ok(false);
     };
 
@@ -71,6 +76,7 @@ pub async fn export_backup(app: AppHandle) -> Result<bool, String> {
         .await
         .map_err(|e| format!("无法生成备份：{e}"))?;
 
+    #[cfg(windows)]
     {
         let app_config = app.path().app_config_dir().map_err(|e| e.to_string())?;
         tauri::async_runtime::spawn_blocking(move || {
@@ -94,31 +100,183 @@ pub async fn export_backup(app: AppHandle) -> Result<bool, String> {
         .await
         .map_err(|e| e.to_string())?
     }
+    #[cfg(target_os = "android")]
+    {
+        crate::android::copy_backup(&app, &snapshot, true).await
+    }
+    #[cfg(not(any(windows, target_os = "android")))]
+    Ok(false)
+}
+
+#[cfg(any(test, target_os = "android"))]
+#[derive(Debug, PartialEq, serde::Serialize)]
+pub struct RestoreReport {
+    pub added: u64,
+    pub duplicates: u64,
+}
+
+#[cfg(any(test, target_os = "android"))]
+async fn restore_snapshot(pool: &SqlitePool, snapshot: &Path) -> Result<RestoreReport, String> {
+    use futures_util::TryStreamExt;
+    let mut source = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(snapshot)
+            .read_only(true)
+            .immutable(true)
+            .pragma("trusted_schema", "OFF"),
+    )
+    .await
+    .map_err(|_| "无法打开备份文件")?;
+    let validation = sqlx::query(
+        "SELECT application_id, user_version FROM pragma_application_id(), pragma_user_version()
+         WHERE EXISTS (SELECT 1 FROM pragma_table_list('rides') WHERE schema='main' AND type='table')",
+    ).fetch_optional(&mut source).await.map_err(|_| "备份格式无效")?;
+    if validation.map(|row| (row.get::<i32, _>(0), row.get::<i32, _>(1)))
+        != Some((FORMAT_ID, FORMAT_VERSION))
+    {
+        return Err("备份格式或版本不受支持".into());
+    }
+    if sqlx::query_scalar::<_, String>("PRAGMA quick_check(1)")
+        .fetch_one(&mut source)
+        .await
+        .ok()
+        .as_deref()
+        != Some("ok")
+    {
+        return Err("备份文件损坏".into());
+    }
+    let select = format!("SELECT {RIDE_COLUMNS} FROM rides");
+    let insert = format!(
+        "INSERT INTO rides ({RIDE_COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING"
+    );
+    let mut rows = sqlx::query(&select).fetch(&mut source);
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| format!("无法开始恢复：{e}"))?;
+    let mut report = RestoreReport {
+        added: 0,
+        duplicates: 0,
+    };
+    let invalid_row = |_| "备份包含无法读取的骑行记录";
+    while let Some(row) = rows.try_next().await.map_err(invalid_row)? {
+        let id: String = row.try_get(0).map_err(invalid_row)?;
+        let name: String = row.try_get(1).map_err(invalid_row)?;
+        let date: Option<String> = row.try_get(2).map_err(invalid_row)?;
+        let distance: f64 = row.try_get(3).map_err(invalid_row)?;
+        let duration: Option<f64> = row.try_get(4).map_err(invalid_row)?;
+        let segments: String = row.try_get(5).map_err(invalid_row)?;
+        let raw: String = row.try_get(6).map_err(invalid_row)?;
+        let filename: String = row.try_get(7).map_err(invalid_row)?;
+        let imported_at: String = row.try_get(8).map_err(invalid_row)?;
+        if id.is_empty()
+            || !distance.is_finite()
+            || duration.is_some_and(|value| !value.is_finite())
+            || !valid_segments(&segments)
+        {
+            return Err("备份包含无效的骑行数据".into());
+        }
+        let result = sqlx::query(&insert)
+            .bind(id)
+            .bind(name)
+            .bind(date)
+            .bind(distance)
+            .bind(duration)
+            .bind(segments)
+            .bind(raw)
+            .bind(filename)
+            .bind(imported_at)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| format!("恢复失败：{e}"))?;
+        if result.rows_affected() > 0 {
+            report.added += 1;
+        } else {
+            report.duplicates += 1;
+        }
+    }
+    tx.commit()
+        .await
+        .map_err(|e| format!("无法保存恢复结果：{e}"))?;
+    Ok(report)
+}
+
+#[cfg(any(test, target_os = "android"))]
+fn valid_segments(raw: &str) -> bool {
+    let Ok(serde_json::Value::Array(segments)) = serde_json::from_str(raw) else {
+        return false;
+    };
+    segments.iter().all(|segment| {
+        segment.as_array().is_some_and(|points| {
+            points.iter().all(|point| {
+                point["lat"]
+                    .as_f64()
+                    .is_some_and(|lat| (-90.0..=90.0).contains(&lat))
+                    && point["lon"]
+                        .as_f64()
+                        .is_some_and(|lon| (-180.0..=180.0).contains(&lon))
+                    && (point["elevation"].is_null() || point["elevation"].is_number())
+                    && (point["time"].is_null() || point["time"].is_string())
+                    && (point["speed"].is_null() || point["speed"].is_number())
+            })
+        })
+    })
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn restore_backup(app: AppHandle) -> Result<Option<RestoreReport>, String> {
+    let pool = ride_pool(&app).await?;
+    let temporary = temporary_backup(&app)?;
+    let snapshot = temporary.path().join(BACKUP_NAME);
+    if !crate::android::copy_backup(&app, &snapshot, false).await? {
+        return Ok(None);
+    }
+    restore_snapshot(&pool, &snapshot).await.map(Some)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    async fn database(path: &Path) -> SqlitePool {
+        let options = SqliteConnectOptions::new()
+            .filename(path)
+            .create_if_missing(true);
+        let pool = SqlitePool::connect_with(options).await.unwrap();
+        sqlx::query(CREATE_RIDES).execute(&pool).await.unwrap();
+        pool
+    }
+
+    async fn seed(pool: &SqlitePool, id: &str, name: &str) {
+        sqlx::query("INSERT INTO rides VALUES (?, ?, NULL, 5.5, NULL, ?, ?, ?, ?)")
+            .bind(id)
+            .bind(name)
+            .bind(r#"[[{"lat":31.2,"lon":121.4,"elevation":null,"time":null}]]"#)
+            .bind("<gpx>原始轨迹</gpx>")
+            .bind("骑行.gpx")
+            .bind("2025-10-01T12:00:00.000Z")
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
     #[test]
-    fn snapshot_preserves_backup_format_and_original_ride_fields() {
+    fn snapshots_preserve_original_fields_and_merge_without_overwriting() {
         tauri::async_runtime::block_on(async {
             let temp = tempfile::tempdir().unwrap();
-            let options = SqliteConnectOptions::new()
-                .filename(temp.path().join("rides.db"))
-                .create_if_missing(true);
-            let pool = SqlitePool::connect_with(options).await.unwrap();
-            sqlx::query(CREATE_RIDES).execute(&pool).await.unwrap();
-            sqlx::query("INSERT INTO rides VALUES ('a', '已改名称', NULL, 5.5, NULL, '[]', '<gpx/>', 'ride.gpx', '2025-10-01')")
-                .execute(&pool)
-                .await
-                .unwrap();
-
-            let snapshot = temp.path().join(BACKUP_NAME);
-            export_snapshot(&pool, &snapshot).await.unwrap();
-            let mut output = SqliteConnection::connect_with(
+            let windows = database(&temp.path().join("windows.db")).await;
+            let android = database(&temp.path().join("android.db")).await;
+            let another_android = database(&temp.path().join("other.db")).await;
+            let snapshot = temp.path().join("snapshot.rideweave-backup");
+            let mobile_snapshot = temp.path().join("mobile.rideweave-backup");
+            seed(&windows, "first", "已改名称").await;
+            seed(&windows, "duplicate", "Windows 名称").await;
+            seed(&android, "duplicate", "手机名称").await;
+            export_snapshot(&windows, &snapshot).await.unwrap();
+            let mut exported = SqliteConnection::connect_with(
                 &SqliteConnectOptions::new()
-                    .filename(snapshot)
+                    .filename(&snapshot)
                     .read_only(true),
             )
             .await
@@ -126,24 +284,82 @@ mod tests {
             let format = sqlx::query_as::<_, (i32, i32)>(
                 "SELECT application_id, user_version FROM pragma_application_id(), pragma_user_version()",
             )
-            .fetch_one(&mut output)
+            .fetch_one(&mut exported)
             .await
             .unwrap();
             assert_eq!(format, (0x52575642, 1));
-            let ride = sqlx::query_as::<_, (String, String, String, String)>(
-                "SELECT id, name, raw_gpx, imported_at FROM rides",
+            exported.close().await.unwrap();
+            assert_eq!(
+                restore_snapshot(&android, &snapshot).await.unwrap(),
+                RestoreReport {
+                    added: 1,
+                    duplicates: 1
+                },
+            );
+            let rows = sqlx::query_as::<_, (String, String, String, String)>(
+                "SELECT name, raw_gpx, filename, imported_at FROM rides ORDER BY id DESC",
             )
-            .fetch_one(&mut output)
+            .fetch_all(&android)
             .await
             .unwrap();
             assert_eq!(
-                ride,
+                rows[0],
                 (
-                    "a".into(),
                     "已改名称".into(),
-                    "<gpx/>".into(),
-                    "2025-10-01".into()
+                    "<gpx>原始轨迹</gpx>".into(),
+                    "骑行.gpx".into(),
+                    "2025-10-01T12:00:00.000Z".into(),
                 )
+            );
+            assert_eq!(rows[1].0, "手机名称");
+            assert_eq!(
+                restore_snapshot(&android, &snapshot).await.unwrap(),
+                RestoreReport {
+                    added: 0,
+                    duplicates: 2
+                },
+            );
+            export_snapshot(&android, &mobile_snapshot).await.unwrap();
+            assert_eq!(
+                restore_snapshot(&another_android, &mobile_snapshot)
+                    .await
+                    .unwrap(),
+                RestoreReport {
+                    added: 2,
+                    duplicates: 0
+                },
+            );
+        });
+    }
+
+    #[test]
+    fn invalid_backup_and_midway_insert_failure_leave_existing_data_intact() {
+        tauri::async_runtime::block_on(async {
+            let temp = tempfile::tempdir().unwrap();
+            let source = database(&temp.path().join("source.db")).await;
+            let dest = database(&temp.path().join("dest.db")).await;
+            let snapshot = temp.path().join("snapshot.rideweave-backup");
+            seed(&source, "a", "第一条").await;
+            seed(&source, "b", "第二条").await;
+            seed(&dest, "existing", "已有记录").await;
+            export_snapshot(&source, &snapshot).await.unwrap();
+            sqlx::query(
+                "CREATE TRIGGER reject_b BEFORE INSERT ON rides WHEN NEW.id = 'b'
+                BEGIN SELECT RAISE(ABORT, 'test failure'); END",
+            )
+            .execute(&dest)
+            .await
+            .unwrap();
+            assert!(restore_snapshot(&dest, &snapshot).await.is_err());
+            let corrupt = temp.path().join("broken.rideweave-backup");
+            std::fs::write(&corrupt, b"bad database").unwrap();
+            assert!(restore_snapshot(&dest, &corrupt).await.is_err());
+            assert_eq!(
+                sqlx::query_scalar::<_, String>("SELECT name FROM rides")
+                    .fetch_all(&dest)
+                    .await
+                    .unwrap(),
+                ["已有记录"],
             );
         });
     }

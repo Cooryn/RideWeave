@@ -2,7 +2,7 @@
 
 > 把每一次出发，织成自己的骑行版图。
 
-RideWeave 是一款 Windows 个人骑行轨迹管理应用。把 GPX 文件或包含轨迹的 ZIP 压缩包拖进来，就能在地图上回顾路线、看看常骑的道路，再用图表和统计发现自己的骑行节奏。
+RideWeave 是一款 Windows 和 Android 个人骑行轨迹管理应用。导入 GPX 文件，就能在地图上回顾路线、看看常骑的道路，再用图表和统计发现自己的骑行节奏。Windows 还支持导入包含 GPX 的 ZIP 压缩包。
 
 **本地保存 · 无需账户 · 浅色 / 深色主题**
 
@@ -19,20 +19,22 @@ RideWeave 是一款 Windows 个人骑行轨迹管理应用。把 GPX 文件或�
 
 ### 1. 安装并打开
 
-前往 [下载页面](https://github.com/Cooryn/RideWeave/releases/latest)，下载 Windows x64 安装包（文件名以 `x64-setup.exe` 结尾），安装后打开 RideWeave。
+Windows 可从 [下载页面](https://github.com/Cooryn/RideWeave/releases/latest) 获取 x64 安装包（文件名以 `x64-setup.exe` 结尾）。
+
+Android 版支持 Android 10 及以上，使用支持 WebGL 的较新系统 WebView。在 [GitHub 发布页](https://github.com/Cooryn/RideWeave/releases) 选择 Android 版本，手机安装签名的 ARM64 APK，x86_64 APK 用于对应的模拟器。首次侧载时按系统提示授权文件管理器安装应用。
 
 安装时如提示缺少 WebView2，按提示联网安装即可。第一次打开没有骑行记录？很正常，版图等你亲自点亮。
 
-### 2. 导入 GPX 或 ZIP
+### 2. 导入 GPX
 
-点击右上角的 **“导入 GPX / ZIP”**，或直接把文件从资源管理器拖进应用窗口，在哪个页面都可以。
+Windows 在各页面都可点击 **“导入 GPX / ZIP”** 或从资源管理器拖入文件。Android 可点击 **“导入 GPX”**，在系统文件选择器中多选，也可从识别 GPX 的应用分享给 RideWeave。
 
-- 支持一次导入多个文件，文件选择时可按 `Ctrl` / `Shift` 多选。单个 GPX 文件不超过 **50 MB**，包括 ZIP 内的 GPX。
+- 支持一次导入多个文件。单个 GPX 不超过 **50 MB**，包括 ZIP 内的 GPX。Windows 文件选择器可用 `Ctrl` / `Shift`，Android 通常长按第一个文件后再点选其他文件。
 - 导入后会显示新增、重复和失败数量；有文件失败时可以展开查看原因，其他文件仍会继续导入。
 - 相同轨迹会自动跳过，即使改过文件名也不用担心重复导入；同一路线在不同日期的骑行会分别保留。
 - 导入不会移动或修改源文件。
 
-使用 Apple 健康的骑行记录时，可直接拖入导出的 ZIP。选择 **“最早导入日期”** 后，应用按轨迹出发的本地日期筛选，包含当天，跳过更早或没有时间的轨迹。留空可导入所有日期。应用只导入 ZIP 中的 GPX，符合日期条件的各类运动轨迹都会参与导入。
+使用 Apple 健康的骑行记录时，Windows 可以直接导入导出的 ZIP。设置 **“最早导入日期”** 后，应用按 ZIP 中轨迹的本地出发日期筛选，包含当天，跳过更早或没有时间的轨迹。留空可导入所有日期。ZIP 中符合日期条件的各类运动 GPX 都会参与导入。Android 可先解压，再从 `workout-routes` 目录挑选骑行 GPX 导入。
 
 ### 3. 在地图上逛逛
 
@@ -55,6 +57,7 @@ RideWeave 是一款 Windows 个人骑行轨迹管理应用。把 GPX 文件或�
 - **动起来看**：点击 **“播放”**，整段轨迹会在最多 20 秒内回放；可以暂停、拖动进度条，结束后再次点击即可重播。
 - **边播放边查看**：悬停图表只预览鼠标所在位置，不会改变播放进度或暂停状态；移开后回到当前回放位置。
 - **也能用键盘**：聚焦图表后，用 `←` / `→` 逐点预览，`Home` / `End` 跳到起终点，`Esc` 退出预览。
+- **手机上点按或拖动图表**：地图会同步显示该采样位置，点图表外即可结束预览。
 
 进度条下方的数值跟随回放位置，悬停提示显示鼠标预览位置的数据。没有采样的缺口不会补造图表数据或回放位置。
 
@@ -87,9 +90,9 @@ Windows 数据文件位置：
 %APPDATA%\com.rideweave.desktop\rideweave.db
 ```
 
-在 **“设置 → 本地数据 → 导出备份”** 选择保存位置。生成的 `.rideweave-backup` 文件包含轨迹、原始 GPX、记录名称和导入时间。要迁移到手机，把文件复制到手机，再使用 Android 版的 **“恢复备份”**。
+备份时先退出 RideWeave，再复制整个 `com.rideweave.desktop` 文件夹；同目录下的数据库附属文件也要一起保留。设置页的 **“本地数据 → 数据位置与备份”** 随时可以找到这份说明。
 
-如需手动备份数据目录，先退出 RideWeave，再复制整个 `com.rideweave.desktop` 文件夹，并保留数据库附属文件。
+Windows 和 Android 都可在 **“设置 → 本地数据 → 导出备份”** 保存一个 `.rideweave-backup` 文件，包含轨迹、原始 GPX、记录名称和导入时间。将 Windows 导出的文件复制到手机，再点 Android 版的 **“恢复备份”**。恢复会合并记录，同一轨迹保留手机上的版本。Android 的工作数据库保存在应用私有目录。两端的外观偏好分别保存在各自设备。
 
 ## 几个使用小贴士
 
@@ -101,4 +104,26 @@ Windows 数据文件位置：
 
 ## 开发与构建
 
-Windows 版在 `main` 分支维护。运行 `npm ci` 安装前端依赖，使用 `npm run tauri dev` 开发，或运行 `npm run tauri build -- --features custom-protocol` 生成安装包。前端测试用 `npm test`，Rust 测试用 `cargo test --manifest-path src-tauri/Cargo.toml`。
+Windows 和 Android 都在 `main` 开发。两端共用界面和骑行数据逻辑，分别通过 `src-tauri/tauri.windows.conf.json` 与 `src-tauri/tauri.android.conf.json` 管理平台配置和版本。Windows 使用 `v<版本号>` 标签，Android 使用 `android-v<版本号>` 标签，两端可独立发布。
+
+Windows 端使用 `npm ci` 安装前端依赖，运行 `npm run tauri dev` 开发，或用 `npm run tauri build -- --features custom-protocol` 打包。
+
+Android 端需要 JDK、Android SDK 37、NDK、Android SDK Build-Tools 和 Platform-Tools。设置 `JAVA_HOME`、`ANDROID_HOME` 和 `NDK_HOME` 后，安装两个 Rust Android 目标。
+
+```powershell
+rustup target add x86_64-linux-android aarch64-linux-android
+npm ci
+npm run tauri android build -- --debug --apk --target x86_64
+```
+
+Android 工程已包含 Gradle wrapper。发行侧载包时，将本机密钥库绝对路径放入 `RIDEWEAVE_ANDROID_STORE`，用 `RIDEWEAVE_ANDROID_PASSWORD` 提供库和别名 `rideweave` 的密码。密钥库可用 JDK 的 `keytool` 在仓库外生成。请留存密钥用于后续覆盖安装。
+
+```powershell
+npm run tauri android build -- --apk --split-per-abi --target x86_64 aarch64 --features custom-protocol
+```
+
+APK 位于 Android 工程的 `app/build/outputs/apk/`。可用 `adb install -r <APK 路径>` 安装到对应架构的模拟器或设备。前端回归用 `npm test`，Rust 回归用 `cargo test --manifest-path src-tauri/Cargo.toml`。
+
+如果 Windows 禁止 Tauri 创建 JNI 库符号链接，可用 `./scripts/build-android.ps1 -Target aarch64` 或 `./scripts/build-android.ps1 -Target x86_64 -DebugBuild`。脚本会将已经编译的 Rust 库复制到 Gradle 的输入目录，再继续打包。
+
+安装 Android 调试包后，可用 `node tests/android-smoke.mjs "<adb.exe 路径>" emulator-5554` 验证应用内导入、地图和重启后的数据。Android 10 模拟器验收使用宿主 GPU 和更新后的 WebView 124。Android 17 模拟器可额外传入 `--native-share`，覆盖系统分享、横屏和断网降级。

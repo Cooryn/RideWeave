@@ -2929,7 +2929,10 @@ dependencies = [
 name = "rideweave"
 version = "1.0.0"
 dependencies = [
+ "futures-util",
  "rfd",
+ "serde",
+ "serde_json",
  "sqlx",
  "tauri",
  "tauri-build",

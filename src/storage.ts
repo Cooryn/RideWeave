@@ -3,9 +3,11 @@ import { isTauri } from "@tauri-apps/api/core";
 import type { Ride } from "./types";
 let connection: Promise<Database> | undefined;
 const db = () => (connection ??= Database.load("sqlite:rideweave.db"));
-export const desktop = isTauri();
+export const nativeApp = isTauri();
+export const android = nativeApp && /\bAndroid\b/i.test(navigator.userAgent);
+export const desktop = nativeApp && !android;
 export async function loadRides(): Promise<Ride[]> {
-  if (!desktop) return [];
+  if (!nativeApp) return [];
   const rows = await (
     await db()
   ).select<
@@ -29,7 +31,7 @@ export async function loadRides(): Promise<Ride[]> {
   }));
 }
 export async function saveRide(ride: Ride, raw: string) {
-  if (!desktop) throw new Error("请在桌面应用中导入，浏览器仅提供界面预览");
+  if (!nativeApp) throw new Error("请在 RideWeave 应用中导入，浏览器仅提供界面预览");
   const result = await (
     await db()
   ).execute(
@@ -51,7 +53,7 @@ export async function saveRide(ride: Ride, raw: string) {
 
 /** Read one original only when its detail charts need legacy speed fields. */
 export async function loadOriginalGpx(id: string): Promise<string | null> {
-  if (!desktop) return null;
+  if (!nativeApp) return null;
   const rows = await (
     await db()
   ).select<Array<{ raw_gpx: string }>>(

@@ -1,6 +1,7 @@
 {
   "identifier": "default",
   "description": "Main window database access",
+  "platforms": ["windows"],
   "windows": ["main"],
   "permissions": [
     "core:default",

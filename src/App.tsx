@@ -21,6 +21,8 @@ import {
   Sun,
   Moon,
   CheckCircle2,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import RideMap from "./Map";
 import RideCharts from "./RideCharts";
@@ -41,13 +43,17 @@ import type { Ride, RidePreviewPoint } from "./types";
 import { parseGpx } from "./gpx";
 import { stats, number, dateLabel } from "./stats";
 import {
+  android,
   desktop,
+  nativeApp,
   loadRides,
   saveRide,
   renameRide,
   deleteRide,
 } from "./storage";
 type Page = "map" | "history" | "stats" | "settings";
+type BackupReport = { added: number; duplicates: number };
+type SharedGpx = { token: string; name: string; size?: number | null };
 
 function ZipImportDialog({
   onCancel,
@@ -123,10 +129,15 @@ export default function App() {
   const [previewPoint, setPreviewPoint] = useState<RidePreviewPoint | null>(
     null,
   );
+  const [panelExpanded, setPanelExpanded] = useState(false);
+  const [confirmRestore, setConfirmRestore] = useState(false);
   const input = useRef<HTMLInputElement>(null),
     lock = useRef(false);
+  const requestingShares = useRef(false);
+  const sharesRequestedAgain = useRef(false);
   const recentScrollTop = useRef(0);
   const themeInitialized = useRef(false);
+  const importLabel = desktop ? "导入 GPX / ZIP" : "导入 GPX";
   const recentListRef = useCallback((node: HTMLDivElement | null) => {
     if (!node) return;
     node.scrollTop = recentScrollTop.current;
@@ -152,7 +163,9 @@ export default function App() {
       320,
     );
     localStorage.setItem("rideweave-theme", dark ? "dark" : "light");
-    if (desktop) {
+    if (android) {
+      void invoke("set_android_theme", { dark }).catch(console.error);
+    } else if (desktop) {
       const background = getComputedStyle(document.documentElement)
         .getPropertyValue("--bg")
         .trim();
@@ -178,6 +191,7 @@ export default function App() {
   );
   function select(id: string) {
     setSelected(id);
+    if (android) setPanelExpanded(true);
     setEdit(false);
     setConfirmDelete(null);
     setHidden((prev) => {
@@ -194,17 +208,92 @@ export default function App() {
     onImport: requestImport,
     onError: setError,
   });
+  useEffect(() => {
+    if (!android || !ready || busy) return;
+    const receive = async () => {
+      if (lock.current) return;
+      if (requestingShares.current) {
+        sharesRequestedAgain.current = true;
+        return;
+      }
+      requestingShares.current = true;
+      try {
+        do {
+          sharesRequestedAgain.current = false;
+          const files = await invoke<SharedGpx[]>("take_shared_gpx");
+          if (!files.length) continue;
+          await importFiles(
+            files.map(({ token, name, size }) => ({
+              name,
+              size: size ?? undefined,
+              text: async () => {
+                const buffer = await invoke<ArrayBuffer>("read_shared_gpx", {
+                  token,
+                });
+                return new TextDecoder("utf-8", { fatal: true }).decode(
+                  new Uint8Array(buffer),
+                );
+              },
+            })),
+          );
+        } while (sharesRequestedAgain.current && !lock.current);
+      } catch (e) {
+        setError(`读取分享文件失败：${String(e)}`);
+      } finally {
+        requestingShares.current = false;
+      }
+    };
+    const onShare = () => void receive();
+    window.addEventListener("rideweave-share", onShare);
+    onShare();
+    return () => window.removeEventListener("rideweave-share", onShare);
+  }, [ready, busy]);
+
+  const handlesBack = Boolean(
+    confirmDelete ||
+    confirmRestore ||
+    page !== "map" ||
+    edit ||
+    current ||
+    panelExpanded,
+  );
+  useEffect(() => {
+    if (!android) return;
+    void invoke("set_android_back_enabled", { enabled: handlesBack }).catch(
+      console.error,
+    );
+  }, [handlesBack]);
+  useEffect(() => {
+    if (!android) return;
+    const back = () => {
+      if (lock.current) return;
+      if (confirmDelete) setConfirmDelete(null);
+      else if (confirmRestore) setConfirmRestore(false);
+      else if (page !== "map") setPage("map");
+      else if (edit) setEdit(false);
+      else if (current) {
+        setSelected(null);
+        setPanelExpanded(false);
+      } else setPanelExpanded(false);
+    };
+    window.addEventListener("rideweave-back", back);
+    return () => window.removeEventListener("rideweave-back", back);
+  }, [confirmDelete, confirmRestore, current, edit, page]);
+
   async function requestImport(files: ImportFile[]) {
     if (lock.current || busy || zipImport) return;
     if (files.some((file) => "gpxFiles" in file)) {
-      setZipImport(files);
+      setZipImport((pending) => pending ?? files);
     } else {
       await importFiles(files);
     }
   }
 
   async function importFiles(files: ImportFile[], earliestDate = "") {
-    if (lock.current) return;
+    if (lock.current) {
+      setError("正在处理文件，请稍后重试。");
+      return;
+    }
     lock.current = true;
     setBusy(true);
     setError("");
@@ -217,10 +306,13 @@ export default function App() {
     const cutoff = earliestDate
       ? new Date(`${earliestDate}T00:00:00`).getTime()
       : null;
+
     async function importGpx(file: GpxImportFile, archive?: string) {
       try {
         if (!/\.gpx$/i.test(file.name))
-          throw new Error("仅支持 GPX 文件或 ZIP 压缩包");
+          throw new Error(
+            desktop ? "仅支持 GPX 文件或 ZIP 压缩包" : "仅支持 GPX 文件",
+          );
         if (file.size !== undefined && file.size > maxGpxBytes)
           throw new Error("文件超过 50 MB 限制");
         const raw = await file.text();
@@ -239,9 +331,7 @@ export default function App() {
         else duplicates++;
       } catch (e) {
         const name = archive ? `${archive} / ${file.name}` : file.name;
-        failures.push(
-          `${name}：${e instanceof Error ? e.message : String(e)}`,
-        );
+        failures.push(`${name}：${e instanceof Error ? e.message : String(e)}`);
       }
     }
     try {
@@ -262,9 +352,12 @@ export default function App() {
       }
       setRides(await loadRides());
       setSelected(null);
+      setPanelExpanded(false);
       setFitKey((k) => k + 1);
       const skipped =
-        cutoff === null ? "" : `，早于所选日期 ${tooOld} 条，无日期 ${undated} 条`;
+        cutoff === null
+          ? ""
+          : `，早于所选日期 ${tooOld} 条，无日期 ${undated} 条`;
       setReport([
         `导入完成：新增 ${added} 条，重复 ${duplicates} 条${skipped}，失败 ${failures.length} 条。`,
         ...failures,
@@ -276,16 +369,31 @@ export default function App() {
       lock.current = false;
     }
   }
-  async function exportBackup() {
+
+  async function backup(action: "export" | "restore") {
     if (lock.current || zipImport) return;
     lock.current = true;
     setBusy(true);
     setError("");
     setReport([]);
+    setConfirmRestore(false);
     try {
-      if (await invoke<boolean>("export_backup")) setReport(["备份已导出。"]);
+      if (action === "export") {
+        if (await invoke<boolean>("export_backup")) setReport(["备份已导出。"]);
+      } else {
+        const result = await invoke<BackupReport | null>("restore_backup");
+        if (result) {
+          setRides(await loadRides());
+          setFitKey((k) => k + 1);
+          setReport([
+            `恢复完成：新增 ${result.added} 条，重复 ${result.duplicates} 条。`,
+          ]);
+        }
+      }
     } catch (e) {
-      setError(`导出备份失败：${String(e)}`);
+      setError(
+        `${action === "export" ? "导出备份" : "恢复备份"}失败：${String(e)}`,
+      );
     } finally {
       lock.current = false;
       setBusy(false);
@@ -423,7 +531,9 @@ export default function App() {
       </div>
     ));
   return (
-    <div className={`app ${page === "map" ? "map-page" : ""}`}>
+    <div
+      className={`app ${page === "map" ? "map-page" : ""}${android ? " android-app" : ""}`}
+    >
       {zipImport && (
         <ZipImportDialog
           onCancel={() => setZipImport(null)}
@@ -482,7 +592,13 @@ export default function App() {
               key={n.id}
               className={page === n.id ? "selected" : ""}
               aria-current={page === n.id ? "page" : undefined}
-              onClick={() => setPage(n.id)}
+              onClick={() => {
+                setPage(n.id);
+                if (android) {
+                  setConfirmDelete(null);
+                  setConfirmRestore(false);
+                }
+              }}
             >
               <n.icon size={19} />
               {n.label}
@@ -493,13 +609,17 @@ export default function App() {
         <div className="sidebar-bottom">
           <div className="local-status">
             <span className="live-dot" />
-            {desktop ? "本地存储" : "浏览器界面预览"}
+            {nativeApp ? "本地存储" : "浏览器界面预览"}
           </div>
         </div>
       </aside>
       <main>
-        <header data-tauri-drag-region>
-          <div className="titlebar-drag" data-tauri-drag-region />
+        <header data-tauri-drag-region={desktop || undefined}>
+          {android ? (
+            <span className="mobile-wordmark">RideWeave</span>
+          ) : (
+            <div className="titlebar-drag" data-tauri-drag-region />
+          )}
           <div className="header-actions">
             <button
               className="icon-button theme-toggle"
@@ -533,27 +653,34 @@ export default function App() {
             </div>
             <button
               className="primary"
-              disabled={busy || zipImport !== null || !ready || !desktop}
+              disabled={busy || zipImport !== null || !ready || !nativeApp}
               onClick={() => input.current?.click()}
             >
               <Download size={17} />
-              {busy ? "正在处理…" : "导入 GPX / ZIP"}
+              {busy ? "正在处理…" : importLabel}
               <span>＋</span>
             </button>
             <input
               ref={input}
               type="file"
-              accept=".gpx,.zip,application/gpx+xml,application/zip"
+              accept={
+                desktop
+                  ? ".gpx,.zip,application/gpx+xml,application/zip"
+                  : undefined
+              }
               multiple
               hidden
               onChange={(e) => {
-                const files = Array.from(e.target.files ?? [], pickedImportFile);
+                const files = Array.from(e.target.files ?? []);
                 e.target.value = "";
-                if (files.length) void requestImport(files);
+                if (files.length)
+                  void requestImport(
+                    desktop ? files.map(pickedImportFile) : files,
+                  );
               }}
             />
           </div>
-          {!desktop && (
+          {!nativeApp && (
             <div className="notice">
               当前为浏览器界面预览。请运行 npm run tauri dev 使用 SQLite 保存和
               GPX 导入。
@@ -643,7 +770,9 @@ export default function App() {
 
                   <button
                     className="primary"
-                    disabled={!desktop || busy || !ready}
+                    disabled={
+                      !nativeApp || busy || zipImport !== null || !ready
+                    }
                     onClick={() => input.current?.click()}
                   >
                     <Download size={16} />
@@ -653,7 +782,7 @@ export default function App() {
               )}
             </section>
             {page === "map" && (
-              <aside className="ride-panel">
+              <aside className="ride-panel" data-expanded={panelExpanded}>
                 {current ? (
                   <>
                     <div className="panel-heading">
@@ -661,7 +790,10 @@ export default function App() {
                       <button
                         className="icon-button"
                         aria-label="关闭详情"
-                        onClick={() => setSelected(null)}
+                        onClick={() => {
+                          setSelected(null);
+                          setPanelExpanded(false);
+                        }}
                       >
                         <X size={18} />
                       </button>
@@ -753,6 +885,7 @@ export default function App() {
                         key={current.id}
                         ride={current}
                         onPreview={setPreviewPoint}
+                        touch={android}
                       />
                       <p className="filename">原始文件：{current.filename}</p>
                       <div className="detail-actions">
@@ -785,6 +918,22 @@ export default function App() {
                       <h2>
                         最近骑行 <span className="count">{rides.length}</span>
                       </h2>
+                      {android && (
+                        <button
+                          className="icon-button mobile-panel-toggle"
+                          aria-label={
+                            panelExpanded ? "收起最近骑行" : "展开最近骑行"
+                          }
+                          aria-expanded={panelExpanded}
+                          onClick={() => setPanelExpanded(!panelExpanded)}
+                        >
+                          {panelExpanded ? (
+                            <ChevronDown size={20} />
+                          ) : (
+                            <ChevronUp size={20} />
+                          )}
+                        </button>
+                      )}
                       <button
                         className="icon-button"
                         title="全部历史记录"
@@ -825,7 +974,7 @@ export default function App() {
                 <div className="empty-list">
                   <History size={34} />
                   <h3>还没有骑行记录</h3>
-                  <p>点击“导入 GPX / ZIP”添加记录。</p>
+                  <p>点击“{importLabel}”添加记录。</p>
                 </div>
               )}
             </section>
@@ -835,6 +984,7 @@ export default function App() {
               rides={rides}
               period={statsPeriod}
               onPeriodChange={setStatsPeriod}
+              touch={android}
               onSelect={(id) => {
                 select(id);
                 setPage("map");
@@ -846,9 +996,13 @@ export default function App() {
               dark={dark}
               onThemeChange={setDark}
               recordCount={ready ? rides.length : null}
-              desktop={desktop}
+              nativeApp={nativeApp}
+              android={android}
               busy={busy || !ready || zipImport !== null}
-              onExport={() => void exportBackup()}
+              confirmRestore={confirmRestore}
+              onExport={() => void backup("export")}
+              onConfirmRestore={setConfirmRestore}
+              onRestore={() => void backup("restore")}
             />
           )}
         </div>

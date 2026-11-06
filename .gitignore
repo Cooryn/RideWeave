@@ -1,7 +1,11 @@
 node_modules/
 dist/
 src-tauri/target/
-src-tauri/gen/
+src-tauri/gen/*
+!src-tauri/gen/android/
+.android-signing/
+*.jks
+*.keystore
 *.log
 .npm-cache/
 *.tsbuildinfo

@@ -1,0 +1,20 @@
+{
+  "identifier": "com.rideweave.android",
+  "version": "1.0.0",
+  "app": {
+    "windows": [
+      {
+        "title": "RideWeave",
+        "useHttpsScheme": true,
+        "dragDropEnabled": false,
+        "backgroundColor": "#080b0c"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tiles.openfreemap.org; connect-src 'self' ipc: https://ipc.localhost https://tiles.openfreemap.org"
+    }
+  },
+  "bundle": {
+    "android": { "minSdkVersion": 29 }
+  }
+}
